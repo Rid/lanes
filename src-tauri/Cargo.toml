@@ -1,0 +1,30 @@
+[package]
+name = "lanes"
+version = "0.1.0"
+description = "A tiny macOS menu-bar launcher that opens AI desktop apps in isolated profiles."
+authors = ["Synthetixis"]
+edition = "2021"
+
+[lib]
+name = "lanes_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tray-icon: the menu-bar status item is the entire UI surface.
+# macos-private-api: enables the transparent, rounded popover window.
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Lanes makes ZERO network requests. No HTTP/updater/opener plugins are pulled in
+# on purpose — the only "action" the app takes is spawning a local process.
+
+[profile.release]
+opt-level = "s"   # tiny binary — this is a weekend artifact, not a game engine
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

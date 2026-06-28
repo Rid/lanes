@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lanes</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <main class="panel" id="panel">
+    <!-- Header -->
+    <header class="head">
+      <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="24" y2="24">
+            <stop offset="0" stop-color="#008080" /><stop offset="1" stop-color="#4374BA" />
+          </linearGradient>
+        </defs>
+        <rect x="3" y="3" width="5" height="18" rx="2.5" fill="url(#g)" />
+        <rect x="10" y="3" width="5" height="18" rx="2.5" fill="url(#g)" opacity=".7" />
+        <rect x="17" y="3" width="4" height="18" rx="2" fill="url(#g)" opacity=".4" />
+      </svg>
+      <span class="nm">Lanes</span>
+      <span class="count" id="count" hidden></span>
+    </header>
+
+    <!-- Lane list / empty state (rendered by panel.js) -->
+    <div class="body" id="body" role="list"></div>
+
+    <!-- Footer -->
+    <footer class="foot" id="foot">
+      <button class="foot-btn add" id="addBtn" type="button">
+        <span class="plus" aria-hidden="true">+</span> Add profile
+      </button>
+      <div class="foot-right">
+        <button class="foot-link" id="manageBtn" type="button">Manage</button>
+        <button class="foot-link" id="quitBtn" type="button">Quit</button>
+      </div>
+    </footer>
+  </main>
+
+  <script src="panel.js"></script>
+</body>
+</html>

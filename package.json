@@ -1,0 +1,15 @@
+{
+  "name": "lanes",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A tiny macOS menu-bar launcher that opens AI desktop apps in isolated profiles.",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
