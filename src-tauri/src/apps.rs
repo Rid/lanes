@@ -20,6 +20,10 @@ pub struct KnownApp {
     pub bundle: &'static str,
     /// Executable name inside `Contents/MacOS`.
     pub binary: &'static str,
+    /// The app's *default* Electron user-data folder name under
+    /// `~/Library/Application Support`. This is where a normal launch (Dock/Finder)
+    /// keeps its session — the "account you're already signed into."
+    pub default_dir_name: &'static str,
 }
 
 pub const KNOWN_APPS: &[KnownApp] = &[KnownApp {
@@ -29,6 +33,7 @@ pub const KNOWN_APPS: &[KnownApp] = &[KnownApp {
     default_color: "#008080",
     bundle: "Claude.app",
     binary: "Claude",
+    default_dir_name: "Claude",
 }];
 
 pub fn find(key: &str) -> Option<&'static KnownApp> {
@@ -61,6 +66,17 @@ impl KnownApp {
 
     pub fn installed(&self) -> bool {
         self.binary_path().is_some()
+    }
+
+    /// `~/Library/Application Support/<default_dir_name>` — the session a normal
+    /// launch uses. Lanes can *point at* this dir to adopt the existing account;
+    /// it never reads what's inside.
+    pub fn default_data_dir(&self) -> PathBuf {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/tmp"));
+        home.join("Library/Application Support")
+            .join(self.default_dir_name)
     }
 }
 

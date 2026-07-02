@@ -11,7 +11,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Lanes — Two accounts. No logout.</title>
-<meta name="description" content="A free macOS menu-bar launcher that opens Claude, ChatGPT and Codex side by side, each on a different account. No token touching. By Synthetixis." />
+<meta name="description" content="A free macOS menu-bar launcher that opens Claude Desktop side by side on different accounts — work and personal at once. Never touches your tokens. By Synthetixis." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -250,7 +250,7 @@
   <div class="wrap">
     <p class="eyebrow reveal">Free · macOS · Open source</p>
     <h1 class="reveal">Two accounts.<br><span class="g">No logout.</span></h1>
-    <p class="lede reveal">Lanes opens your AI desktop apps &mdash; <b>Claude, ChatGPT and Codex</b> &mdash; each signed into a different account, side by side. Work and personal, running at once. No more logging out a dozen times a day.</p>
+    <p class="lede reveal">Lanes opens <b>Claude Desktop</b> signed into a different account in each lane, side by side. Work and personal, running at once. No more logging out a dozen times a day.</p>
 
     <div class="cta-row reveal">
       <a class="btn btn-primary" id="dlBtn" href="#" data-dl>
@@ -335,16 +335,55 @@
   </div>
 </section>
 
+<section class="sec" id="install" style="padding-top:0">
+  <div class="wrap">
+    <p class="sec-eye reveal">First launch</p>
+    <h2 class="reveal">Opening it the first time.</h2>
+    <p class="sub reveal">Lanes is free and independent, so it isn&rsquo;t notarized by Apple yet. macOS asks you to confirm once &mdash; a ten-second step, no terminal needed.</p>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="n">1</div>
+        <h3>Drag to Applications</h3>
+        <p>Open the <span class="kbd">.dmg</span> and drag <b>Lanes</b> into your Applications folder, then double-click it.</p>
+      </div>
+      <div class="step reveal">
+        <div class="n">2</div>
+        <h3>Open Anyway</h3>
+        <p>macOS blocks the very first launch. Open <span class="kbd">System Settings &rarr; Privacy &amp; Security</span>, scroll to the bottom, and click <span class="kbd">Open Anyway</span>.</p>
+      </div>
+      <div class="step reveal">
+        <div class="n">3</div>
+        <h3>That&rsquo;s it</h3>
+        <p>Confirm once and Lanes opens from your menu bar. You won&rsquo;t see the prompt again.</p>
+      </div>
+    </div>
+    <div class="reveal" style="margin-top:26px;display:flex;flex-wrap:wrap;gap:14px;align-items:center">
+      <span style="font-size:13.5px;color:var(--muted)">Still says &ldquo;damaged&rdquo;? Paste this in Terminal once, then reopen Lanes:</span>
+      <code class="code-card" style="padding:10px 14px;font-size:12.5px;color:#bfe"><span class="k">xattr</span> -dr com.apple.quarantine /Applications/Lanes.app</code>
+    </div>
+    <p class="reveal" style="font-family:var(--mono);font-size:12px;color:#5b7676;margin-top:16px;line-height:1.6">
+      Why the prompt? Apple charges for the certificate that removes it. Lanes is free and open source &mdash; read every line, or build it yourself.
+    </p>
+  </div>
+</section>
+
 <section class="sec" id="apps" style="padding-top:0">
   <div class="wrap">
     <p class="sec-eye reveal">Works with</p>
-    <h2 class="reveal">The apps you already juggle.</h2>
-    <p class="sub reveal">Lanes launches the official apps &mdash; it doesn&rsquo;t replace them. Each account gets its own clean, isolated lane.</p>
+    <h2 class="reveal">Claude, today.</h2>
+    <p class="sub reveal">Lanes launches the official app &mdash; it doesn&rsquo;t replace it. Each account gets its own clean, isolated lane.</p>
     <div class="apps">
       <div class="app-chip reveal"><span class="ic" style="border-color:#1f4a4a">C</span><div><div class="t">Claude Desktop</div><div class="d">work · personal · client</div></div></div>
-      <div class="app-chip reveal"><span class="ic" style="border-color:#2a4a6a">G</span><div><div class="t">ChatGPT</div><div class="d">work · personal</div></div></div>
-      <div class="app-chip reveal"><span class="ic" style="border-color:#3a4a6a">Cx</span><div><div class="t">Codex</div><div class="d">work · personal</div></div></div>
     </div>
+
+    <p class="sec-eye reveal" style="margin-top:40px;color:var(--muted)">On the radar</p>
+    <div class="apps">
+      <div class="app-chip reveal" style="opacity:.5"><span class="ic" style="border-color:#2a4a6a">G</span><div><div class="t">ChatGPT</div><div class="d">not yet &middot; native app, no isolation hook</div></div></div>
+      <div class="app-chip reveal" style="opacity:.5"><span class="ic" style="border-color:#3a4a6a">Cx</span><div><div class="t">Codex</div><div class="d">not yet &middot; ignores the profile flag</div></div></div>
+    </div>
+    <p class="reveal" style="font-family:var(--mono);font-size:12px;color:#5b7676;margin-top:16px;line-height:1.6">
+      Lanes only adds an app once it can isolate cleanly without touching your login. Claude does today; these don&rsquo;t yet &mdash; and Lanes won&rsquo;t fake it.
+    </p>
   </div>
 </section>
 

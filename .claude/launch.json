@@ -12,6 +12,18 @@
         "/private/tmp/claude-501/-Users-mafaqriaz-Workspace-Synthetixis-UtilityTools-Lanes/29c17b9f-a2b1-4db9-9d78-c6d5775c5a10/scratchpad/preview"
       ],
       "port": 4599
+    },
+    {
+      "name": "lanes-landing",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4600",
+        "--directory",
+        "/Users/mafaqriaz/Workspace/Synthetixis/UtilityTools/Lanes"
+      ],
+      "port": 4600
     }
   ]
 }

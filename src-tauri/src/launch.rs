@@ -20,27 +20,16 @@ pub fn launch(binary: &Path, data_dir: &Path) -> std::io::Result<u32> {
     Ok(child.id())
 }
 
-/// The set of `--user-data-dir` paths that currently have a live process, so the
-/// UI can show which lanes are already open. Best-effort: if `pgrep` is missing or
-/// errors, returns empty (the UI just shows nothing running).
-pub fn running_data_dirs() -> Vec<String> {
-    let Ok(output) = Command::new("pgrep")
-        .arg("-fl")
-        .arg("--user-data-dir=")
-        .output()
-    else {
+/// Every running process's full command line, one per entry. Best-effort: empty on
+/// error. The caller matches against *known* data-dir strings rather than parsing
+/// paths out of these, because data-dir paths contain spaces
+/// (`~/Library/Application Support/…`) and can't be split on whitespace.
+pub fn command_lines() -> Vec<String> {
+    let Ok(output) = Command::new("ps").args(["-axo", "command="]).output() else {
         return Vec::new();
     };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut dirs: Vec<String> = Vec::new();
-    for line in text.lines() {
-        if let Some(rest) = line.split("--user-data-dir=").nth(1) {
-            // The path runs until the next argument (we never put spaces in profile ids).
-            let path = rest.split_whitespace().next().unwrap_or("").to_string();
-            if !path.is_empty() && !dirs.contains(&path) {
-                dirs.push(path);
-            }
-        }
-    }
-    dirs
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .collect()
 }

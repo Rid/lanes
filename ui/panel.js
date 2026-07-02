@@ -10,6 +10,7 @@ const state = {
   apps: [],
   appByKey: {},
   profiles: [],
+  adoptable: [],
   running: new Set(),
   mode: "list", // list | add | manage | confirm
   selected: 0,
@@ -24,22 +25,27 @@ const $count = () => document.getElementById("count");
 
 // ---- data ----
 async function refresh() {
-  const [apps, profiles, running] = await Promise.all([
+  const [apps, profiles, running, adoptable] = await Promise.all([
     invoke("known_apps"),
     invoke("list_profiles"),
     invoke("running_dirs"),
+    invoke("adoptable_apps"),
   ]);
   state.apps = apps;
   state.appByKey = Object.fromEntries(apps.map((a) => [a.key, a]));
   state.profiles = profiles;
+  state.adoptable = adoptable;
   state.running = new Set(running);
   if (state.selected >= profiles.length) state.selected = Math.max(0, profiles.length - 1);
   render();
 }
 
 function refreshRunning() {
-  invoke("running_dirs").then((running) => {
+  // Re-pull running + adoptable together (a newly-started default session becomes
+  // both "running" and "adoptable").
+  Promise.all([invoke("running_dirs"), invoke("adoptable_apps")]).then(([running, adoptable]) => {
     state.running = new Set(running);
+    state.adoptable = adoptable;
     if (state.mode === "list") render();
   });
 }
@@ -75,8 +81,23 @@ function render() {
   $foot().hidden = false;
   updateFooter();
 
+  // "You're already signed into Claude — adopt it" strips (list mode only).
+  if (state.mode === "list") {
+    state.adoptable.forEach((a) => body.appendChild(adoptStrip(a)));
+  }
+
+  if (state.error && state.mode === "list") {
+    const bar = el("div", "err");
+    bar.style.padding = "10px 15px 0";
+    bar.textContent = state.error;
+    body.appendChild(bar);
+  }
+
   if (state.profiles.length === 0) {
-    renderEmpty(body);
+    // Full empty state only when there's nothing to adopt either; otherwise the
+    // adopt strip is the primary action and the footer "+ Add profile" covers new ones.
+    if (state.adoptable.length === 0) renderEmpty(body);
+    else body.appendChild(emptyHint());
     afterRender();
     return;
   }
@@ -88,17 +109,58 @@ function render() {
     $count().textContent = `${liveCount} open`;
   }
 
-  if (state.error && state.mode === "list") {
-    const bar = el("div", "err");
-    bar.style.padding = "10px 15px 0";
-    bar.textContent = state.error;
-    body.appendChild(bar);
-  }
-
   state.profiles.forEach((p, i) => {
     state.mode === "manage" ? body.appendChild(manageRow(p)) : body.appendChild(laneRow(p, i));
   });
   afterRender();
+}
+
+function adoptStrip(a) {
+  const wrap = el("div", "adopt");
+
+  const hd = el("div", "adopt-hd");
+  const ic = el("span", "ic", a.monogram);
+  ic.style.borderColor = a.default_color;
+  hd.appendChild(ic);
+  const t = el("div", "adopt-t");
+  t.appendChild(el("span", "adopt-name", `${a.name} — already signed in`));
+  t.appendChild(el("span", "adopt-sub", a.running ? "Running now · name your current session" : "Add your current session as a lane"));
+  hd.appendChild(t);
+  if (a.running) hd.appendChild(el("span", "live"));
+  wrap.appendChild(hd);
+
+  const rowc = el("div", "adopt-row");
+  const input = el("input", "text-input adopt-input");
+  input.placeholder = "Name it — e.g. Personal";
+  input.maxLength = 32;
+  const btn = el("button", "btn btn-primary adopt-btn", "Add");
+  btn.disabled = true;
+  const submit = async () => {
+    const v = input.value.trim();
+    if (!v) return;
+    try {
+      state.error = "";
+      await invoke("adopt_profile", { app: a.key, label: v });
+      state.mode = "list";
+      await refresh();
+    } catch (e) {
+      state.error = String(e);
+      render();
+    }
+  };
+  input.addEventListener("input", () => (btn.disabled = input.value.trim().length === 0));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && input.value.trim()) submit();
+  });
+  btn.addEventListener("click", submit);
+  rowc.append(input, btn);
+  wrap.appendChild(rowc);
+  return wrap;
+}
+
+function emptyHint() {
+  const h = el("div", "empty-hint", "…or use + Add profile below for a separate account.");
+  return h;
 }
 
 function laneRow(p, i) {
@@ -115,7 +177,10 @@ function laneRow(p, i) {
   ic.style.borderColor = p.color;
 
   const meta = el("div", "meta");
-  meta.appendChild(el("span", "app", app ? app.name : p.app));
+  const appRow = el("div", "app-row");
+  appRow.appendChild(el("span", "app", app ? app.name : p.app));
+  if (p.isDefault) appRow.appendChild(el("span", "badge", "current"));
+  meta.appendChild(appRow);
   meta.appendChild(el("span", "prof", p.label));
 
   row.append(dot, ic, meta, el("span", "spacer"));
@@ -271,23 +336,35 @@ function renderConfirm(body) {
   wrap.appendChild(el("div", "c-title", "Remove this profile?"));
   wrap.appendChild(el("div", "c-text", `“${app ? app.name : p.app} · ${p.label}” will be removed from Lanes.`));
 
-  const label = el("label", "check");
-  const cb = el("input");
-  cb.type = "checkbox";
-  label.appendChild(cb);
-  const txt = el("div");
-  txt.appendChild(document.createTextNode("Also delete its data folder"));
-  txt.appendChild(el("span", "sub", "Erases the saved login for this lane. Can’t be undone."));
-  label.appendChild(txt);
-  wrap.appendChild(label);
+  // Adopted default sessions: never offer to delete the app's real data folder.
+  let cb = null;
+  if (p.isDefault) {
+    wrap.appendChild(
+      el(
+        "div",
+        "c-note",
+        "This is your existing default session. Removing it just takes the lane out of Lanes — your Claude data and login stay exactly where they are.",
+      ),
+    );
+  } else {
+    const label = el("label", "check");
+    cb = el("input");
+    cb.type = "checkbox";
+    label.appendChild(cb);
+    const txt = el("div");
+    txt.appendChild(document.createTextNode("Also delete its data folder"));
+    txt.appendChild(el("span", "sub", "Erases the saved login for this lane. Can’t be undone."));
+    label.appendChild(txt);
+    wrap.appendChild(label);
 
-  const path = el("div", "c-path", p.dataDir);
-  path.hidden = true;
-  cb.addEventListener("change", () => {
-    path.hidden = !cb.checked;
-    afterRender();
-  });
-  wrap.appendChild(path);
+    const path = el("div", "c-path", p.dataDir);
+    path.hidden = true;
+    cb.addEventListener("change", () => {
+      path.hidden = !cb.checked;
+      afterRender();
+    });
+    wrap.appendChild(path);
+  }
 
   if (state.error) wrap.appendChild(el("div", "err", state.error));
 
@@ -296,7 +373,7 @@ function renderConfirm(body) {
   remove.addEventListener("click", async () => {
     try {
       state.error = "";
-      await invoke("remove_profile", { id: p.id, deleteData: cb.checked });
+      await invoke("remove_profile", { id: p.id, deleteData: cb ? cb.checked : false });
       state.confirmId = null;
       state.mode = state.profiles.length > 1 ? "manage" : "list";
       await refresh();
@@ -375,7 +452,12 @@ function updateFooter() {
   const manageBtn = document.getElementById("manageBtn");
   manageBtn.textContent = state.mode === "manage" ? "Done" : "Manage";
   manageBtn.classList.toggle("active", state.mode === "manage");
-  document.getElementById("addBtn").style.display = state.profiles.length === 0 ? "none" : "";
+  // Show "+ Add profile" whenever there's something on screen (lanes or an adopt
+  // strip); hide it only on the pristine empty state, which has its own big button.
+  const showAdd = state.profiles.length > 0 || state.adoptable.length > 0;
+  document.getElementById("addBtn").style.display = showAdd ? "" : "none";
+  // "Manage" only makes sense once there are real lanes.
+  manageBtn.style.display = state.profiles.length > 0 ? "" : "none";
 }
 
 // ---- height sync ----

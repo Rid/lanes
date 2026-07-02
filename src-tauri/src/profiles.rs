@@ -18,6 +18,10 @@ pub struct Profile {
     pub color: String,
     #[serde(rename = "dataDir")]
     pub data_dir: String,
+    /// True when this lane points at the app's *default* data dir (an adopted
+    /// existing session). Its data folder is never offered for deletion.
+    #[serde(rename = "isDefault", default)]
+    pub is_default: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -113,6 +117,38 @@ pub fn add(app_key: &str, label: &str, color: &str) -> Result<Profile, String> {
         label: label.to_string(),
         color: color.to_string(),
         data_dir: dir.to_string_lossy().to_string(),
+        is_default: false,
+    };
+    store.profiles.push(profile.clone());
+    save(&store).map_err(|e| format!("Couldn't save profiles: {e}"))?;
+    Ok(profile)
+}
+
+/// Adopt the app's existing default session as a lane. Points at the app's
+/// default data dir (which already exists) — no new directory is created, and the
+/// dir is never a deletion target.
+pub fn adopt(app_key: &str, label: &str) -> Result<Profile, String> {
+    let app = crate::apps::find(app_key).ok_or_else(|| format!("Unknown app: {app_key}"))?;
+    let label = label.trim();
+    if label.is_empty() {
+        return Err("Profile name can't be empty.".into());
+    }
+    let default_dir = app.default_data_dir().to_string_lossy().to_string();
+
+    let mut store = load();
+    if store.profiles.iter().any(|p| p.data_dir == default_dir) {
+        return Err("This session is already added as a lane.".into());
+    }
+    let base = format!("{}-{}", app_key, slugify(label));
+    let id = unique_id(&store, &base);
+
+    let profile = Profile {
+        id,
+        app: app_key.to_string(),
+        label: label.to_string(),
+        color: app.default_color.to_string(),
+        data_dir: default_dir,
+        is_default: true,
     };
     store.profiles.push(profile.clone());
     save(&store).map_err(|e| format!("Couldn't save profiles: {e}"))?;
@@ -189,6 +225,7 @@ mod tests {
                 label: "Work".into(),
                 color: "#008080".into(),
                 data_dir: "/tmp/x".into(),
+                is_default: false,
             }],
         };
         assert_eq!(unique_id(&store, "claude-work"), "claude-work-2");

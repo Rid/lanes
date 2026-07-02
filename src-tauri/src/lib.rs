@@ -59,9 +59,92 @@ fn remove_profile(id: String, delete_data: bool) -> Result<(), String> {
     profiles::remove(&id, delete_data)
 }
 
+/// The set of data dirs that currently have a live app instance, so the UI can
+/// mark which lanes are open. Covers two cases:
+///   1. Lanes-launched instances — matched by their exact `--user-data-dir=<dir>`.
+///   2. A *default* session started normally (Dock/Finder) — a main app binary
+///      running with NO `--user-data-dir` flag maps to the app's default data dir.
+fn compute_running_dirs() -> Vec<String> {
+    let lines = launch::command_lines();
+    // Pad each line so an end-of-line match still has a trailing space to test
+    // against, and so `claude-work` can't prefix-match `claude-work-2`.
+    let padded: Vec<String> = lines.iter().map(|l| format!("{l} ")).collect();
+    let mut running: Vec<String> = Vec::new();
+
+    for p in profiles::load().profiles {
+        let needle = format!("--user-data-dir={} ", p.data_dir);
+        if padded.iter().any(|l| l.contains(&needle)) && !running.contains(&p.data_dir) {
+            running.push(p.data_dir);
+        }
+    }
+
+    for a in apps::KNOWN_APPS {
+        let Some(bin) = a.binary_path() else { continue };
+        let prefix = format!("{} ", bin.to_string_lossy());
+        let default_running = padded
+            .iter()
+            .any(|l| l.starts_with(&prefix) && !l.contains("--user-data-dir="));
+        if default_running {
+            let dd = a.default_data_dir().to_string_lossy().to_string();
+            if !running.contains(&dd) {
+                running.push(dd);
+            }
+        }
+    }
+    running
+}
+
 #[tauri::command]
 fn running_dirs() -> Vec<String> {
-    launch::running_data_dirs()
+    compute_running_dirs()
+}
+
+/// An existing default session the user could adopt as a lane.
+#[derive(serde::Serialize)]
+struct Adoptable {
+    key: String,
+    name: String,
+    monogram: String,
+    default_color: String,
+    default_dir: String,
+    running: bool,
+}
+
+/// Installed apps whose default session exists (or is running) but hasn't been
+/// added as a lane yet — i.e. "you're already signed into Claude, adopt it."
+#[tauri::command]
+fn adoptable_apps() -> Vec<Adoptable> {
+    let profiles = profiles::load().profiles;
+    let running = compute_running_dirs();
+    apps::KNOWN_APPS
+        .iter()
+        .filter_map(|a| {
+            a.binary_path()?;
+            let dd = a.default_data_dir();
+            let dd_str = dd.to_string_lossy().to_string();
+            // Already added, or the user has never used this app → nothing to adopt.
+            if profiles.iter().any(|p| p.data_dir == dd_str) {
+                return None;
+            }
+            let is_running = running.contains(&dd_str);
+            if !dd.exists() && !is_running {
+                return None;
+            }
+            Some(Adoptable {
+                key: a.key.into(),
+                name: a.name.into(),
+                monogram: a.monogram.into(),
+                default_color: a.default_color.into(),
+                default_dir: dd_str,
+                running: is_running,
+            })
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn adopt_profile(app: String, label: String) -> Result<profiles::Profile, String> {
+    profiles::adopt(&app, &label)
 }
 
 #[tauri::command]
@@ -166,6 +249,8 @@ pub fn run() {
             set_profile_color,
             remove_profile,
             running_dirs,
+            adoptable_apps,
+            adopt_profile,
             launch_profile,
             set_panel_height,
             hide_panel,

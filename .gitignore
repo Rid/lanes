@@ -5,6 +5,9 @@ node_modules/
 src-tauri/target/
 src-tauri/gen/
 
+# distributable binaries (upload to GitHub Releases, don't commit)
+dist/
+
 # macOS
 .DS_Store
 

@@ -51,23 +51,26 @@ app version exposes a working isolation path, adding it is one line — no other
 
 ## Install
 
-1. Download `Lanes_x.y.z_aarch64.dmg` from [Releases](https://github.com/synthetixis/lanes/releases).
+1. Download `Lanes-0.1.0.dmg` from [Releases](https://github.com/synthetixis/lanes/releases).
 2. Open it and drag **Lanes** into your Applications folder.
 3. Launch it. Lanes appears in your **menu bar** (no Dock icon).
 
-> **Gatekeeper note:** v0 builds are ad-hoc signed, not yet notarized. On first launch macOS may
-> warn that the developer can't be verified — right-click the app → **Open**, or allow it under
-> **System Settings → Privacy & Security**. (See [Distribution](#distribution) for the notarization
-> hook.)
+> **First launch:** v0 builds aren't notarized by Apple yet, so macOS blocks the first open. It's a
+> one-time step — **System Settings → Privacy & Security → Open Anyway**. Full walkthrough (and the
+> Terminal fallback) in **[INSTALL.md](INSTALL.md)**. See [Distribution](#distribution) for the
+> notarization hook that removes the prompt entirely.
 
 ## How to use
 
 1. Click the **Lanes** icon in the menu bar.
-2. **+ Add profile** → pick Claude, name the lane (`Work`, `Personal`, a client name…), pick a color.
-3. Click the lane. The real Claude app opens on that account. Click another and they run side by
-   side. Sign in once per lane — the login stays put.
-4. **Manage** lets you rename or remove a lane. Removing offers to delete that lane's data folder,
-   naming the exact path first — nothing is erased without an explicit confirmation.
+2. **Already signed into Claude?** Lanes detects your current session and offers to adopt it —
+   just give it a name (`Personal`, `Work`…). That existing account becomes a lane, no re-login.
+3. **+ Add profile** → pick Claude, name a *new* lane, pick a color. Sign in once per new lane.
+4. Click a lane. The real Claude app opens on that account. Click another and they run side by
+   side — the login stays put.
+5. **Manage** lets you rename or remove a lane. Removing a Lanes-created lane offers to delete its
+   data folder, naming the exact path first. An **adopted** lane never offers that — removing it
+   just drops it from Lanes and leaves your real Claude data untouched.
 
 Profiles live in `~/Library/Application Support/Lanes/` (a small `lanes.json` plus one folder per
 profile). Lanes never looks inside those folders — it just hands the path to the app.
