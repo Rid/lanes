@@ -265,13 +265,13 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "Quit Lanes", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_item])?;
 
-            let icon = app
-                .default_window_icon()
-                .cloned()
-                .expect("bundled default icon");
+            // Monochrome template icon → renders in the menu-bar colour and adapts
+            // to light/dark automatically.
+            let tray_icon = tauri::include_image!("icons/tray.png");
 
             TrayIconBuilder::with_id("lanes-tray")
-                .icon(icon)
+                .icon(tray_icon)
+                .icon_as_template(true)
                 .tooltip("Lanes")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
