@@ -100,6 +100,12 @@ ui/              # index.html · panel.css · panel.js  (the dropdown)
 
 ## Distribution
 
+> **⚠️ Keep the release asset named `Lanes.dmg`.** The landing page links to
+> `https://github.com/synthetixis/lanes/releases/latest/download/Lanes.dmg` — a permalink that always
+> points at the newest release, so the site never needs editing on a new version. It only works if
+> every release uploads its `.dmg` under the **exact filename `Lanes.dmg`** (rename the built
+> `Lanes_x.y.z_aarch64.dmg` to `Lanes.dmg` when attaching it). Change the name and the download breaks.
+
 To ship a build users can open without Gatekeeper friction, code-sign and notarize the `.dmg`. With
 an Apple Developer ID, set the signing identity in `src-tauri/tauri.conf.json` under
 `bundle.macOS.signingIdentity` and provide notarization credentials via the standard
@@ -117,4 +123,15 @@ especially on Team or Enterprise plans.**
 
 ## License
 
-MIT © Synthetixis. See [LICENSE](LICENSE).
+The **source code** is **MIT** — see [LICENSE](LICENSE). Read it, build it, ship your own fork. The
+**brand is reserved**, though (names, mark, logo) — see [Trademarks & brand](#trademarks--brand).
+
+## Trademarks & brand
+
+The MIT license covers the **source code only**. The **Lanes** and **Synthetixis** names, the ▍▍▍
+Lanes mark, the Synthetixis logo, and associated brand assets are **not** licensed for reuse. Forks
+and derivative works must be **rebranded** — you may not distribute a build using the Lanes name or
+marks.
+
+The landing page ([lanes.synthetixis.com](https://lanes.synthetixis.com)) lives in its own,
+all-rights-reserved repo (`lanes-site`) — this repository is the app only.
