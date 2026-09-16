@@ -1,6 +1,6 @@
 [package]
 name = "lanes"
-version = "0.1.0"
+version = "0.1.1"
 description = "A tiny macOS menu-bar launcher that opens AI desktop apps in isolated profiles."
 authors = ["Synthetixis"]
 edition = "2021"
