@@ -12,8 +12,7 @@ use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{
     ActivationPolicy, LogicalSize, Manager, PhysicalPosition, Runtime, WindowEvent,
 };
@@ -261,10 +260,12 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             let _ = app.set_activation_policy(ActivationPolicy::Accessory);
 
-            // Right-click tray menu — a reliable Quit even if the panel webview hiccups.
-            let quit_item = MenuItem::with_id(app, "quit", "Quit Lanes", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&quit_item])?;
-
+            // Deliberately NO menu attached to the status item. With an NSMenu attached,
+            // newer macOS builds (seen on macOS 27) show it on *every* click regardless of
+            // show_menu_on_left_click(false) — the click never reaches our handler and the
+            // panel never opens (the user just sees a menu with "Quit"). Any click now
+            // toggles the panel; Quit lives in the panel footer.
+            //
             // Monochrome template icon → renders in the menu-bar colour and adapts
             // to light/dark automatically.
             let tray_icon = tauri::include_image!("icons/tray.png");
@@ -273,16 +274,8 @@ pub fn run() {
                 .icon(tray_icon)
                 .icon_as_template(true)
                 .tooltip("Lanes")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    if event.id.as_ref() == "quit" {
-                        app.exit(0);
-                    }
-                })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
                         rect,
                         ..
