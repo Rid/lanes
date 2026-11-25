@@ -1,61 +1,109 @@
-// Lanes tray panel — renders lanes, drives add/rename/remove, talks to Rust.
+// Lanes manager window: add, adopt, rename, recolour and remove lanes.
+// Launching lanes happens in the native menu-bar menu (src-tauri/src/menu.rs).
 // No localStorage/sessionStorage: all state lives in Rust (JSON on disk).
 
-const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
-// Auto-assign palette (teal → soft → blue → variants), matching the brand.
-const LANE_COLORS = ["#008080", "#16a3a3", "#4374ba", "#6a8fd0", "#0e8f8f", "#2e5e9e"];
+// Auto-assign palette, starting from Appbox violet. Each colour fills an app tile
+// behind a white monogram, so all of them are dark enough for white text.
+const LANE_COLORS = ["#593ee8", "#3023ae", "#8a3ec8", "#2563eb", "#0b7a70", "#c2366b"];
+
+// Phosphor icons (MIT, regular weight), the set Kumo uses.
+const ICON_PATHS = {
+  plus: "M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z",
+  trash:
+    "M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z",
+  lock: "M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Z",
+  signIn:
+    "M141.66,133.66l-40,40a8,8,0,0,1-11.32-11.32L116.69,136H24a8,8,0,0,1,0-16h92.69L90.34,93.66a8,8,0,0,1,11.32-11.32l40,40A8,8,0,0,1,141.66,133.66ZM200,32H136a8,8,0,0,0,0,16h56V208H136a8,8,0,0,0,0,16h64a8,8,0,0,0,8-8V40A8,8,0,0,0,200,32Z",
+  folder:
+    "M216,72H130.67L102.93,51.2a16.12,16.12,0,0,0-9.6-3.2H40A16,16,0,0,0,24,64V200a16,16,0,0,0,16,16H216.89A15.13,15.13,0,0,0,232,200.89V88A16,16,0,0,0,216,72Zm0,128H40V64H93.33L123.2,86.4A8,8,0,0,0,128,88h88Z",
+  warning:
+    "M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,172Z",
+};
+
+// A line of text with an icon aligned to its first line (Kumo's icon rule).
+function iconLine(cls, iconName, text) {
+  const row = el("div", cls);
+  const slot = el("span", "line-icon");
+  slot.appendChild(icon(iconName));
+  row.append(slot, el("span", null, text));
+  return row;
+}
 
 const state = {
   apps: [],
   appByKey: {},
   profiles: [],
   adoptable: [],
-  running: new Set(),
-  mode: "list", // list | add | manage | confirm
-  selected: 0,
+  // "manage" | "add" | "adopt" | "confirm" | "copy" | "copied"
+  mode: "manage",
+  copy: { from: null, to: null, busy: false, result: null },
+  // Where a form returns to: "manage", or "close" when the menu opened it directly.
+  back: "close",
+  adoptKey: null,
   confirmId: null,
+  colorEditId: null,
   draft: { app: null, label: "", color: LANE_COLORS[0] },
   error: "",
 };
 
 const $body = () => document.getElementById("body");
 const $foot = () => document.getElementById("foot");
-const $count = () => document.getElementById("count");
 
 // ---- data ----
-async function refresh() {
-  const [apps, profiles, running, adoptable] = await Promise.all([
+async function load() {
+  const [apps, profiles, adoptable] = await Promise.all([
     invoke("known_apps"),
     invoke("list_profiles"),
-    invoke("running_dirs"),
     invoke("adoptable_apps"),
   ]);
   state.apps = apps;
   state.appByKey = Object.fromEntries(apps.map((a) => [a.key, a]));
   state.profiles = profiles;
   state.adoptable = adoptable;
-  state.running = new Set(running);
-  if (state.selected >= profiles.length) state.selected = Math.max(0, profiles.length - 1);
+}
+
+async function refresh() {
+  await load();
   render();
 }
 
-function refreshRunning() {
-  // Re-pull running + adoptable together (a newly-started default session becomes
-  // both "running" and "adoptable").
-  Promise.all([invoke("running_dirs"), invoke("adoptable_apps")]).then(([running, adoptable]) => {
-    state.running = new Set(running);
-    state.adoptable = adoptable;
-    if (state.mode === "list") render();
-  });
+// ---- navigation ----
+
+// A view requested by the menu ("manage", "add" or "adopt:<app>").
+async function openView(view) {
+  await load();
+  state.error = "";
+  state.colorEditId = null;
+  if (view === "add") {
+    startAdd("close");
+  } else if (view === "copy") {
+    startCopy("close");
+  } else if (view.startsWith("adopt:")) {
+    state.adoptKey = view.slice("adopt:".length);
+    state.back = "close";
+    state.mode = "adopt";
+  } else {
+    state.mode = "manage";
+  }
+  render();
+}
+
+// Leave a form: back to the list, or close the window if the menu opened the form.
+function leaveForm() {
+  state.error = "";
+  if (state.back === "close") return closeWindow();
+  state.mode = "manage";
+  render();
+}
+
+function closeWindow() {
+  invoke("close_manager");
 }
 
 // ---- helpers ----
-function laneIcon(app) {
-  const ic = el("span", "ic", app ? app.monogram : "?");
-  return ic;
-}
-
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -63,65 +111,113 @@ function el(tag, cls, text) {
   return e;
 }
 
+function icon(name) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("viewBox", "0 0 256 256");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", ICON_PATHS[name]);
+  svg.appendChild(path);
+  return svg;
+}
+
+function tile(app, color, tag = "span") {
+  const t = el(tag, "ic", app ? app.monogram : "?");
+  t.style.background = color;
+  return t;
+}
+
+function appName(p) {
+  const app = state.appByKey[p.app];
+  return app ? app.name : p.app;
+}
+
 function nextColor() {
   const used = new Set(state.profiles.map((p) => p.color));
   return LANE_COLORS.find((c) => !used.has(c)) || LANE_COLORS[state.profiles.length % LANE_COLORS.length];
+}
+
+function title(text, sub) {
+  const wrap = el("div", "view-head");
+  wrap.appendChild(el("h1", "view-title", text));
+  if (sub) wrap.appendChild(el("p", "view-sub", sub));
+  return wrap;
+}
+
+// Errors show as a Kumo danger banner.
+function errorLine() {
+  if (!state.error) return null;
+  const banner = iconLine("err", "warning", state.error);
+  banner.setAttribute("role", "alert");
+  return banner;
+}
+
+function swatches(selected, onPick) {
+  const sw = el("div", "swatches");
+  LANE_COLORS.forEach((c) => {
+    const s = el("button", "swatch" + (selected === c ? " sel" : ""));
+    s.type = "button";
+    s.style.background = c;
+    s.setAttribute("aria-label", `Colour ${c}`);
+    s.addEventListener("click", () => onPick(c));
+    sw.appendChild(s);
+  });
+  return sw;
 }
 
 // ---- render ----
 function render() {
   const body = $body();
   body.innerHTML = "";
-  $count().hidden = true;
+  $foot().hidden = state.mode !== "manage";
+  document.getElementById("copyBtn").hidden = claudeLanes().length < 2;
 
-  if (state.mode === "add") return renderAdd(body);
-  if (state.mode === "confirm") return renderConfirm(body);
-
-  // list or manage
-  $foot().hidden = false;
-  updateFooter();
-
-  // "You're already signed into Claude — adopt it" strips (list mode only).
-  if (state.mode === "list") {
-    state.adoptable.forEach((a) => body.appendChild(adoptStrip(a)));
-  }
-
-  if (state.error && state.mode === "list") {
-    const bar = el("div", "err");
-    bar.style.padding = "10px 15px 0";
-    bar.textContent = state.error;
-    body.appendChild(bar);
-  }
-
-  if (state.profiles.length === 0) {
-    // Full empty state only when there's nothing to adopt either; otherwise the
-    // adopt strip is the primary action and the footer "+ Add profile" covers new ones.
-    if (state.adoptable.length === 0) renderEmpty(body);
-    else body.appendChild(emptyHint());
-    afterRender();
-    return;
-  }
-
-  // running count chip
-  const liveCount = state.profiles.filter((p) => state.running.has(p.dataDir)).length;
-  if (liveCount > 0) {
-    $count().hidden = false;
-    $count().textContent = `${liveCount} open`;
-  }
-
-  state.profiles.forEach((p, i) => {
-    state.mode === "manage" ? body.appendChild(manageRow(p)) : body.appendChild(laneRow(p, i));
-  });
+  if (state.mode === "add") renderAdd(body);
+  else if (state.mode === "copy") renderCopy(body);
+  else if (state.mode === "copied") renderCopied(body);
+  else if (state.mode === "adopt") renderAdopt(body);
+  else if (state.mode === "confirm") renderConfirm(body);
+  else renderManage(body);
   afterRender();
 }
 
-function adoptStrip(a) {
+function renderManage(body) {
+  body.appendChild(title("Lanes", "Each lane is a separate sign-in. Open them from the menu bar."));
+
+  state.adoptable.forEach((a) => body.appendChild(adoptCard(a)));
+  const err = errorLine();
+  if (err) body.appendChild(err);
+
+  if (state.profiles.length === 0) {
+    body.appendChild(el("p", "empty-hint", "No lanes yet. Add one for each account — Work, Personal, whatever fits."));
+    return;
+  }
+  const list = el("div", "list");
+  state.profiles.forEach((p) => {
+    list.appendChild(manageRow(p));
+    if (state.colorEditId === p.id) {
+      const picker = el("div", "row-colors");
+      picker.appendChild(
+        swatches(p.color, async (c) => {
+          state.colorEditId = null;
+          await invoke("set_profile_color", { id: p.id, color: c }).catch((e) => (state.error = String(e)));
+          refresh();
+        }),
+      );
+      list.appendChild(picker);
+    }
+  });
+  body.appendChild(list);
+}
+
+// "You're already signed into Claude — add it as a lane."
+function adoptCard(a, { focus = false } = {}) {
   const wrap = el("div", "adopt");
 
   const hd = el("div", "adopt-hd");
-  const ic = el("span", "ic", a.monogram);
-  ic.style.borderColor = a.default_color;
-  hd.appendChild(ic);
+  hd.appendChild(tile(a, a.default_color));
   const t = el("div", "adopt-t");
   t.appendChild(el("span", "adopt-name", `${a.name} — already signed in`));
   t.appendChild(el("span", "adopt-sub", a.running ? "Running now · name your current session" : "Add your current session as a lane"));
@@ -129,11 +225,12 @@ function adoptStrip(a) {
   if (a.running) hd.appendChild(el("span", "live"));
   wrap.appendChild(hd);
 
-  const rowc = el("div", "adopt-row");
+  const row = el("div", "adopt-row");
   const input = el("input", "text-input adopt-input");
   input.placeholder = "Name it — e.g. Personal";
   input.maxLength = 32;
   const btn = el("button", "btn btn-primary adopt-btn", "Add");
+  btn.type = "button";
   btn.disabled = true;
   const submit = async () => {
     const v = input.value.trim();
@@ -141,7 +238,8 @@ function adoptStrip(a) {
     try {
       state.error = "";
       await invoke("adopt_profile", { app: a.key, label: v });
-      state.mode = "list";
+      if (state.mode === "adopt" && state.back === "close") return closeWindow();
+      state.mode = "manage";
       await refresh();
     } catch (e) {
       state.error = String(e);
@@ -153,61 +251,30 @@ function adoptStrip(a) {
     if (e.key === "Enter" && input.value.trim()) submit();
   });
   btn.addEventListener("click", submit);
-  rowc.append(input, btn);
-  wrap.appendChild(rowc);
+  row.append(input, btn);
+  wrap.appendChild(row);
+  if (focus) setTimeout(() => input.focus(), 30);
   return wrap;
-}
-
-function emptyHint() {
-  const h = el("div", "empty-hint", "…or use + Add profile below for a separate account.");
-  return h;
-}
-
-function laneRow(p, i) {
-  const app = state.appByKey[p.app];
-  const row = el("div", "lane launchable");
-  row.setAttribute("role", "listitem");
-  row.tabIndex = 0;
-  if (i === state.selected) row.classList.add("sel");
-
-  const dot = el("span", "dotlane");
-  dot.style.background = p.color;
-
-  const ic = laneIcon(app);
-  ic.style.borderColor = p.color;
-
-  const meta = el("div", "meta");
-  const appRow = el("div", "app-row");
-  appRow.appendChild(el("span", "app", app ? app.name : p.app));
-  if (p.isDefault) appRow.appendChild(el("span", "badge", "current"));
-  meta.appendChild(appRow);
-  meta.appendChild(el("span", "prof", p.label));
-
-  row.append(dot, ic, meta, el("span", "spacer"));
-  if (state.running.has(p.dataDir)) row.appendChild(el("span", "live"));
-  row.appendChild(el("span", "go", "›"));
-
-  const launch = () => launchProfile(p);
-  row.addEventListener("click", launch);
-  row.addEventListener("mouseenter", () => {
-    state.selected = i;
-    [...$body().querySelectorAll(".lane")].forEach((r, j) => r.classList.toggle("sel", j === i));
-  });
-  return row;
 }
 
 function manageRow(p) {
   const app = state.appByKey[p.app];
   const row = el("div", "lane");
 
-  const dot = el("span", "dotlane");
-  dot.style.background = p.color;
-  const ic = laneIcon(app);
-  ic.style.borderColor = p.color;
+  const colorBtn = tile(app, p.color, "button");
+  colorBtn.type = "button";
+  colorBtn.title = "Change colour";
+  colorBtn.setAttribute("aria-label", `Change colour of ${p.label}`);
+  colorBtn.addEventListener("click", () => {
+    state.colorEditId = state.colorEditId === p.id ? null : p.id;
+    render();
+  });
 
+  const meta = el("div", "meta");
   const input = el("input", "rename-input");
   input.value = p.label;
-  input.setAttribute("aria-label", `Rename ${app ? app.name : p.app} profile`);
+  input.maxLength = 32;
+  input.setAttribute("aria-label", `Rename ${appName(p)} lane`);
   const save = () => {
     const v = input.value.trim();
     if (!v) {
@@ -223,128 +290,135 @@ function manageRow(p) {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") input.blur();
     if (e.key === "Escape") {
-      e.stopPropagation(); // cancel the edit only; don't also hide the panel
+      e.stopPropagation(); // cancel the edit only; don't also close the window
       input.value = p.label;
       input.blur();
     }
   });
   input.addEventListener("blur", save);
+  const sub = el("span", "prof", p.isDefault ? `${appName(p)} · current session` : appName(p));
+  meta.append(input, sub);
 
-  const actions = el("div", "row-actions");
-  const del = el("button", "icon-btn danger", "🗑");
-  del.title = "Remove profile";
-  del.setAttribute("aria-label", `Remove ${app ? app.name : p.app} · ${p.label}`);
+  const del = el("button", "icon-btn danger");
+  del.type = "button";
+  del.appendChild(icon("trash"));
+  del.title = "Remove lane";
+  del.setAttribute("aria-label", `Remove ${p.label}`);
   del.addEventListener("click", () => {
+    state.error = "";
     state.confirmId = p.id;
+    state.back = "manage";
     state.mode = "confirm";
     render();
   });
-  actions.appendChild(del);
 
-  row.append(dot, ic, input, actions);
+  row.append(colorBtn, meta, del);
   return row;
 }
 
-function renderEmpty(body) {
-  const wrap = el("div", "empty");
-  wrap.appendChild(el("div", "e-title", "No lanes yet"));
-  const sub = el(
-    "div",
-    "e-sub",
-    "Add a lane for each account — name them Work, Personal, whatever fits. Sign in once per lane.",
+function renderAdopt(body) {
+  const a = state.adoptable.find((x) => x.key === state.adoptKey);
+  if (!a) {
+    // Already added (or the session went away) since the menu was opened.
+    body.appendChild(title("Nothing to add", "That session is already a lane."));
+    body.appendChild(formActions(null, "Close"));
+    return;
+  }
+  body.appendChild(
+    title(`Add your current ${a.name} session`, "The account you're signed into now becomes a lane. You won't need to sign in again."),
   );
-  wrap.appendChild(sub);
-  const btn = el("button", "btn btn-primary", "+ Add your first lane");
-  btn.style.maxWidth = "220px";
-  btn.style.margin = "0 auto";
-  btn.style.display = "block";
-  btn.addEventListener("click", openAdd);
-  wrap.appendChild(btn);
-  body.appendChild(wrap);
+  body.appendChild(adoptCard(a, { focus: true }));
+  const err = errorLine();
+  if (err) body.appendChild(err);
+  body.appendChild(formActions(null, "Cancel"));
+}
+
+function startAdd(back) {
+  const firstInstalled = state.apps.find((a) => a.installed);
+  state.draft = {
+    app: firstInstalled ? firstInstalled.key : null,
+    label: "",
+    color: nextColor(),
+  };
+  state.error = "";
+  state.back = back;
+  state.mode = "add";
 }
 
 function renderAdd(body) {
-  $foot().hidden = true;
+  body.appendChild(title("Add a lane", "Name it, then sign in once in the window that opens."));
   const form = el("div", "form");
 
   form.appendChild(el("p", "f-label", "App"));
   const picks = el("div", "app-picks");
   state.apps.forEach((a) => {
-    const pick = el("div", "app-pick" + (a.installed ? "" : " disabled") + (state.draft.app === a.key ? " sel" : ""));
-    const ic = el("span", "ic", a.monogram);
-    ic.style.borderColor = a.installed ? a.default_color : "var(--line)";
-    pick.appendChild(ic);
+    const pick = el("button", "app-pick" + (a.installed ? "" : " disabled") + (state.draft.app === a.key ? " sel" : ""));
+    pick.type = "button";
+    pick.disabled = !a.installed;
+    pick.appendChild(tile(a, a.default_color));
     pick.appendChild(el("span", "an", a.name));
     if (!a.installed) pick.appendChild(el("span", "ni", "not installed"));
-    if (a.installed) {
-      pick.addEventListener("click", () => {
-        state.draft.app = a.key;
-        render();
-      });
-    }
+    pick.addEventListener("click", () => {
+      state.draft.app = a.key;
+      render();
+    });
     picks.appendChild(pick);
   });
   form.appendChild(picks);
 
-  form.appendChild(el("p", "f-label", "Profile name"));
+  form.appendChild(el("p", "f-label", "Name"));
   const input = el("input", "text-input");
   input.placeholder = "Work";
   input.value = state.draft.label;
   input.maxLength = 32;
+  form.appendChild(input);
+
+  form.appendChild(el("p", "f-label", "Colour"));
+  form.appendChild(
+    swatches(state.draft.color, (c) => {
+      state.draft.color = c;
+      render();
+    }),
+  );
+
+  const err = errorLine();
+  if (err) form.appendChild(err);
+
+  const addBtn = el("button", "btn btn-primary", "Add lane");
+  addBtn.type = "button";
+  addBtn.disabled = !canAdd();
+  addBtn.addEventListener("click", submitAdd);
   input.addEventListener("input", () => {
     state.draft.label = input.value;
     addBtn.disabled = !canAdd();
   });
-  // Escape is handled by the document listener; handling it here too closed the
-  // form and then hid the whole panel, because the event still bubbled up.
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && canAdd()) submitAdd();
   });
-  form.appendChild(input);
-
-  form.appendChild(el("p", "f-label", "Lane color"));
-  const sw = el("div", "swatches");
-  LANE_COLORS.forEach((c) => {
-    const s = el("button", "swatch" + (state.draft.color === c ? " sel" : ""));
-    s.style.background = c;
-    s.setAttribute("aria-label", `Color ${c}`);
-    s.addEventListener("click", () => {
-      state.draft.color = c;
-      render();
-    });
-    sw.appendChild(s);
-  });
-  form.appendChild(sw);
-
-  const err = el("div", "err", state.error || "");
-  form.appendChild(err);
-
-  const actions = el("div", "form-actions");
-  const addBtn = el("button", "btn btn-primary", "Add lane");
-  addBtn.disabled = !canAdd();
-  addBtn.addEventListener("click", submitAdd);
-  const cancel = el("button", "btn btn-ghost", "Cancel");
-  cancel.addEventListener("click", closeForm);
-  actions.append(addBtn, cancel);
-  form.appendChild(actions);
+  form.appendChild(formActions(addBtn, "Cancel"));
 
   body.appendChild(form);
-  afterRender();
   setTimeout(() => input.focus(), 30);
 }
 
+function formActions(primary, cancelText) {
+  const actions = el("div", "form-actions");
+  if (primary) actions.appendChild(primary);
+  const cancel = el("button", "btn btn-ghost", cancelText);
+  cancel.type = "button";
+  cancel.addEventListener("click", leaveForm);
+  actions.appendChild(cancel);
+  return actions;
+}
+
 function renderConfirm(body) {
-  $foot().hidden = true;
   const p = state.profiles.find((x) => x.id === state.confirmId);
   if (!p) {
     state.mode = "manage";
-    return render();
+    return renderManage(body);
   }
-  const app = state.appByKey[p.app];
-
+  body.appendChild(title("Remove this lane?", `“${p.label}” (${appName(p)}) will be removed from Lanes.`));
   const wrap = el("div", "confirm");
-  wrap.appendChild(el("div", "c-title", "Remove this profile?"));
-  wrap.appendChild(el("div", "c-text", `“${app ? app.name : p.app} · ${p.label}” will be removed from Lanes.`));
 
   // Adopted default sessions: never offer to delete the app's real data folder.
   let cb = null;
@@ -353,7 +427,7 @@ function renderConfirm(body) {
       el(
         "div",
         "c-note",
-        "This is your existing default session. Removing it just takes the lane out of Lanes — your Claude data and login stay exactly where they are.",
+        `This is your existing ${appName(p)} session. Removing it only takes the lane out of Lanes; your ${appName(p)} data and sign-in stay where they are.`,
       ),
     );
   } else {
@@ -363,7 +437,7 @@ function renderConfirm(body) {
     label.appendChild(cb);
     const txt = el("div");
     txt.appendChild(document.createTextNode("Also delete its data folder"));
-    txt.appendChild(el("span", "sub", "Erases the saved login for this lane. Can’t be undone."));
+    txt.appendChild(el("span", "sub", "Erases the saved sign-in for this lane. Can’t be undone."));
     label.appendChild(txt);
     wrap.appendChild(label);
 
@@ -376,58 +450,124 @@ function renderConfirm(body) {
     wrap.appendChild(path);
   }
 
-  if (state.error) wrap.appendChild(el("div", "err", state.error));
+  const err = errorLine();
+  if (err) wrap.appendChild(err);
 
-  const actions = el("div", "form-actions");
   const remove = el("button", "btn btn-danger", "Remove");
+  remove.type = "button";
   remove.addEventListener("click", async () => {
     try {
       state.error = "";
       await invoke("remove_profile", { id: p.id, deleteData: cb ? cb.checked : false });
       state.confirmId = null;
-      state.mode = state.profiles.length > 1 ? "manage" : "list";
+      state.mode = "manage";
       await refresh();
     } catch (e) {
       state.error = String(e);
       render();
     }
   });
-  const cancel = el("button", "btn btn-ghost", "Cancel");
-  cancel.addEventListener("click", () => {
-    state.error = "";
-    state.confirmId = null;
-    state.mode = "manage";
-    render();
-  });
-  actions.append(remove, cancel);
-  wrap.appendChild(actions);
-
+  wrap.appendChild(formActions(remove, "Cancel"));
   body.appendChild(wrap);
-  afterRender();
+}
+
+// ---- copy setup between lanes ----
+const claudeLanes = () => state.profiles.filter((p) => p.app === "claude");
+
+function startCopy(back) {
+  const lanes = claudeLanes();
+  // From the session you already use (the adopted one) to the newest lane.
+  const from = lanes.find((p) => p.isDefault) || lanes[0];
+  const to = [...lanes].reverse().find((p) => p !== from);
+  state.copy = { from: from?.id ?? null, to: to?.id ?? null, busy: false, result: null };
+  state.error = "";
+  state.back = back;
+  state.mode = "copy";
+}
+
+function laneSelect(value, onChange) {
+  const select = el("select", "select");
+  claudeLanes().forEach((p) => {
+    const opt = el("option", null, p.label);
+    opt.value = p.id;
+    opt.selected = p.id === value;
+    select.appendChild(opt);
+  });
+  select.addEventListener("change", () => onChange(select.value));
+  return select;
+}
+
+function renderCopy(body) {
+  body.appendChild(title("Copy Claude setup", "Make one lane match another: settings, plugins, and Code and Cowork sessions."));
+  const form = el("div", "form");
+  if (claudeLanes().length < 2) {
+    form.appendChild(el("p", "c-note", "Add a second Claude lane first, then copy your setup into it."));
+    form.appendChild(formActions(null, "Close"));
+    body.appendChild(form);
+    return;
+  }
+  const c = state.copy;
+  form.appendChild(el("p", "f-label", "From"));
+  form.appendChild(laneSelect(c.from, (v) => ((c.from = v), render())));
+  form.appendChild(el("p", "f-label", "To"));
+  form.appendChild(laneSelect(c.to, (v) => ((c.to = v), render())));
+
+  const label = (id) => state.profiles.find((p) => p.id === id)?.label ?? "that lane";
+  const notes = el("div", "notes");
+  notes.append(
+    iconLine("note", "lock", "Sign-in isn't copied. Chats and projects stay with each account on claude.ai."),
+    iconLine("note", "signIn", `Sign in to “${label(c.to)}” once first, and quit it before copying.`),
+    iconLine("note", "folder", `Copied sessions share their working folders with “${label(c.from)}”.`),
+  );
+  form.appendChild(notes);
+
+  const err = errorLine();
+  if (err) form.appendChild(err);
+
+  const go = el("button", "btn btn-primary", c.busy ? "Copying…" : "Copy");
+  go.type = "button";
+  go.disabled = c.busy || !c.from || !c.to || c.from === c.to;
+  go.addEventListener("click", submitCopy);
+  const actions = formActions(go, "Cancel");
+  actions.lastChild.disabled = c.busy;
+  form.appendChild(actions);
+  body.appendChild(form);
+}
+
+async function submitCopy() {
+  const c = state.copy;
+  c.busy = true;
+  state.error = "";
+  render();
+  try {
+    c.result = await invoke("copy_lane", { from: c.from, to: c.to });
+    state.mode = "copied";
+  } catch (e) {
+    state.error = String(e);
+  }
+  c.busy = false;
+  render();
+}
+
+function renderCopied(body) {
+  const to = state.profiles.find((p) => p.id === state.copy.to);
+  const n = state.copy.result?.sessions ?? 0;
+  const what = n === 1 ? "1 session" : `${n} sessions`;
+  body.appendChild(
+    title("Setup copied", `${what} and your settings are now in “${to ? to.label : "the other lane"}”. Open it from the menu to see them.`),
+  );
+  const done = el("button", "btn btn-primary", "Done");
+  done.type = "button";
+  done.addEventListener("click", leaveForm);
+  const actions = el("div", "form-actions");
+  actions.appendChild(done);
+  body.appendChild(actions);
 }
 
 // ---- actions ----
 function canAdd() {
   const a = state.appByKey[state.draft.app];
   return !!a && a.installed && state.draft.label.trim().length > 0;
-}
-
-function openAdd() {
-  const firstInstalled = state.apps.find((a) => a.installed);
-  state.draft = {
-    app: firstInstalled ? firstInstalled.key : null,
-    label: "",
-    color: nextColor(),
-  };
-  state.error = "";
-  state.mode = "add";
-  render();
-}
-
-function closeForm() {
-  state.error = "";
-  state.mode = "list";
-  render();
 }
 
 async function submitAdd() {
@@ -439,7 +579,8 @@ async function submitAdd() {
       label: state.draft.label.trim(),
       color: state.draft.color,
     });
-    state.mode = "list";
+    if (state.back === "close") return closeWindow();
+    state.mode = "manage";
     await refresh();
   } catch (e) {
     state.error = String(e);
@@ -447,88 +588,39 @@ async function submitAdd() {
   }
 }
 
-async function launchProfile(p) {
-  try {
-    state.error = "";
-    await invoke("launch_profile", { id: p.id });
-    // panel hides itself on success (Rust side)
-  } catch (e) {
-    state.error = String(e);
-    render();
-  }
-}
-
-function updateFooter() {
-  const manageBtn = document.getElementById("manageBtn");
-  manageBtn.textContent = state.mode === "manage" ? "Done" : "Manage";
-  manageBtn.classList.toggle("active", state.mode === "manage");
-  // Show "+ Add profile" whenever there's something on screen (lanes or an adopt
-  // strip); hide it only on the pristine empty state, which has its own big button.
-  const showAdd = state.profiles.length > 0 || state.adoptable.length > 0;
-  document.getElementById("addBtn").style.display = showAdd ? "" : "none";
-  // "Manage" only makes sense once there are real lanes.
-  manageBtn.style.display = state.profiles.length > 0 ? "" : "none";
-}
-
-// ---- height sync ----
+// ---- window height follows the content ----
 function afterRender() {
   requestAnimationFrame(() => {
-    const panel = document.getElementById("panel");
-    const h = panel.offsetHeight + 12; // account for the 6px margins
-    invoke("set_panel_height", { height: h });
+    const h = document.getElementById("panel").offsetHeight;
+    invoke("fit_manager", { height: h });
   });
 }
 
 // ---- keyboard ----
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    if (state.mode === "add") return closeForm();
-    if (state.mode === "confirm") {
-      state.mode = "manage";
-      state.error = "";
-      return render();
-    }
-    return invoke("hide_panel");
-  }
-  if (state.mode !== "list" || state.profiles.length === 0) return;
-  // Keys typed into a field, or Enter on a focused button, belong to that control.
-  // Without this, Enter in the adopt box (or on "Quit") also launched a lane, and
-  // the arrow keys re-rendered the list and wiped what was typed.
-  if (e.target.closest("input, button")) return;
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
-    state.selected = Math.min(state.profiles.length - 1, state.selected + 1);
-    render();
-    focusSelected();
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    state.selected = Math.max(0, state.selected - 1);
-    render();
-    focusSelected();
-  } else if (e.key === "Enter") {
-    const p = state.profiles[state.selected];
-    if (p) launchProfile(p);
-  }
+  if (e.key !== "Escape" || state.copy.busy) return;
+  if (state.mode === "manage") return closeWindow();
+  leaveForm();
 });
-
-function focusSelected() {
-  const rows = $body().querySelectorAll(".lane");
-  if (rows[state.selected]) rows[state.selected].focus();
-}
 
 // ---- footer wiring ----
-document.getElementById("addBtn").addEventListener("click", openAdd);
-document.getElementById("manageBtn").addEventListener("click", () => {
-  state.error = "";
-  state.mode = state.mode === "manage" ? "list" : "manage";
+document.getElementById("addBtn").addEventListener("click", () => {
+  startAdd("manage");
   render();
 });
-document.getElementById("quitBtn").addEventListener("click", () => invoke("quit"));
+document.getElementById("copyBtn").addEventListener("click", () => {
+  startCopy("manage");
+  render();
+});
+document.getElementById("doneBtn").addEventListener("click", closeWindow);
 
-// Refresh "running" state each time the panel regains focus (it's shown on tray click).
+// Adoptable sessions change as apps start and quit; recheck when the window comes back.
 window.addEventListener("focus", () => {
-  if (state.mode === "list" || state.mode === "manage") refreshRunning();
+  if (state.mode === "manage") refresh();
 });
 
+// The menu asks for a view while the window is already open.
+listen("lanes://view", (e) => openView(String(e.payload)));
+
 // ---- boot ----
-refresh();
+openView(window.__LANES_VIEW || "manage");

@@ -1,14 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Core permissions for the Lanes tray panel. No network/fs/shell plugin permissions — all privileged work happens in vetted Rust commands.",
-  "windows": ["main"],
+  "description": "Permissions for the Lanes manager window. No network/fs/shell plugin permissions \u2014 all privileged work happens in vetted Rust commands.",
+  "windows": [
+    "manage"
+  ],
   "permissions": [
     "core:default",
-    "core:window:allow-hide",
-    "core:window:allow-show",
-    "core:window:allow-set-focus",
-    "core:window:allow-set-size",
     "core:window:allow-start-dragging"
   ]
 }

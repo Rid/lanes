@@ -1,20 +1,109 @@
-/* Lanes tray panel — brand tokens + tray styling reused from lanes-landing.html.
-   Fonts use the system stack (SF on macOS) instead of remote Google Fonts, because
-   Lanes makes ZERO network requests. Token names match the landing page so bundled
-   Inter/JetBrains Mono could be dropped in later with a one-line @font-face swap. */
+/*
+ * Lanes manager window, in Appbox's Kumo look. (The menu-bar menu itself is native.)
+ *
+ * Kumo is Cloudflare's design system (MIT). This file copies its type scale,
+ * component recipes (buttons, inputs, badges, cards) and design rules into plain
+ * CSS, with the Appbox theme ("option B, softer") from the Appbox frontend's
+ * kumo-prototype.css on top: the violet-indigo of the logo instead of
+ * Cloudflare's blue, slightly violet greys, a blue-black dark mode, rounder
+ * corners, violet selection, and cards on a soft shadow as well as their ring.
+ *
+ * Kumo rules followed here: 14px content text, sentence-case headings, no
+ * letter-spacing changes, semibold (never bold) headings, rings instead of
+ * borders next to shadows, concentric radii, and no colour transitions on hover.
+ *
+ * Geist is bundled (fonts/, SIL OFL) because Lanes makes no network requests.
+ */
+
+@font-face {
+  font-family: "Geist";
+  src: url("fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+/* ---- tokens: light ---- */
 :root {
-  --ink: #151515;
-  --ink-deep: #0e1b1b;
-  --ink-deeper: #0a1416;
-  --teal: #008080;
-  --blue: #4374ba;
-  --teal-soft: #16a3a3;
-  --white: #ffffff;
-  --muted: #9fb4b4;
-  --line: #1e2e2e;
-  --grad: linear-gradient(110deg, #008080 0%, #4374ba 100%);
-  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
-  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, monospace;
+  color-scheme: light dark;
+
+  --brand: oklch(51% 0.24 281);
+  --brand-hover: oklch(46% 0.23 282);
+  --text-brand: oklch(51% 0.24 281);
+  --focus: oklch(51% 0.24 281);
+
+  --canvas: oklch(98.4% 0.005 285);
+  --base: #fff;
+  --elevated: oklch(98% 0.005 285);
+  --recessed: oklch(96% 0.008 285);
+  --control: #fff;
+  --line: oklch(30% 0.06 285 / 0.13);
+  --hairline: oklch(93.5% 0.01 285);
+  --fill: oklch(92.5% 0.012 285);
+  --tint: oklch(96.8% 0.01 285);
+
+  --text-default: oklch(21% 0.02 285);
+  --text-strong: oklch(15% 0.02 285);
+  --text-subtle: oklch(54% 0.022 285);
+  --text-placeholder: oklch(70% 0.016 285);
+
+  --danger: oklch(63.7% 0.237 25.331);
+  --text-danger: oklch(50.5% 0.213 27.518);
+  --danger-tint: oklch(93.6% 0.032 17.7 / 0.42);
+  --success: oklch(59.6% 0.145 163.225);
+  --text-success: oklch(43.2% 0.095 166.913);
+  --success-tint: oklch(96.2% 0.043 156.7 / 0.57);
+
+  --selected: oklch(51% 0.24 281 / 0.09);
+  --card-shadow:
+    0 1px 2px oklch(30% 0.06 285 / 0.06),
+    0 6px 16px -8px oklch(30% 0.1 285 / 0.18);
+
+  /* Appbox's rounder corners (Kumo's are 4 / 6 / 8 / 12px). */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+/* ---- tokens: dark (a blue-black) ---- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand: oklch(56% 0.22 282);
+    --brand-hover: oklch(51% 0.22 282);
+    --text-brand: oklch(78% 0.12 285);
+    --focus: oklch(72% 0.15 284);
+
+    --canvas: oklch(14.5% 0.02 280);
+    --base: oklch(19.5% 0.022 280);
+    --elevated: oklch(16.5% 0.02 280);
+    --recessed: oklch(15.5% 0.014 282);
+    --control: oklch(21% 0.018 282);
+    --line: oklch(32% 0.025 282);
+    --hairline: oklch(26% 0.022 282);
+    --fill: oklch(26% 0.022 282);
+    --tint: oklch(25% 0.022 282);
+
+    --text-default: oklch(96% 0.006 282);
+    --text-strong: oklch(98.5% 0.004 282);
+    --text-subtle: oklch(71% 0.022 282);
+    --text-placeholder: oklch(55% 0.02 282);
+
+    --danger: oklch(57.7% 0.245 27.325);
+    --text-danger: oklch(70.4% 0.191 22.216);
+    --danger-tint: oklch(42.9% 0.176 28.7 / 0.17);
+    --success: oklch(76.5% 0.177 163.223);
+    --text-success: oklch(90.5% 0.093 164.15);
+    --success-tint: oklch(39.3% 0.096 152.3 / 0.2);
+
+    --selected: oklch(70% 0.15 284 / 0.14);
+    --card-shadow:
+      0 1px 2px oklch(0% 0 0 / 0.3),
+      0 6px 16px -8px oklch(0% 0 0 / 0.5);
+  }
 }
 
 * {
@@ -29,240 +118,294 @@
 html,
 body {
   margin: 0;
-  background: transparent;
-  /* transparent window — the .panel draws the rounded surface */
-  color: var(--white);
+  background: var(--base);
+  color: var(--text-default);
   font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
   overflow: hidden;
 }
 
-button {
-  font-family: inherit;
+button,
+input {
+  font: inherit;
   color: inherit;
+}
+
+button {
   background: none;
   border: none;
+  padding: 0;
   cursor: default;
 }
 
-.panel {
-  margin: 6px;
-  border-radius: 16px;
-  border: 1px solid #24403f;
-  overflow: hidden;
-  background: linear-gradient(180deg, rgba(16, 30, 30, 0.98), rgba(10, 20, 22, 0.99));
-  box-shadow:
-    0 20px 50px -18px rgba(0, 0, 0, 0.85),
-    0 0 0 1px rgba(22, 163, 163, 0.12);
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: currentColor;
 }
 
-/* ---- header ---- */
+/* ---- title bar (the window's traffic lights sit at its left) ---- */
 .head {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 13px 15px;
-  border-bottom: 1px solid var(--line);
+  gap: 10px;
+  height: 52px;
+  padding: 0 16px 0 88px;
+  border-bottom: 1px solid var(--hairline);
 }
-.head .mark {
-  width: 18px;
-  height: 18px;
+/* The Appbox wordmark, drawn in the text colour through a mask. */
+.head .wordmark {
+  width: 64px;
+  height: 15px;
+  flex: none;
+  background: var(--text-default);
+  -webkit-mask: url("brand/appbox-wordmark.svg") no-repeat left center / contain;
+  mask: url("brand/appbox-wordmark.svg") no-repeat left center / contain;
+}
+.head .sep {
+  width: 1px;
+  height: 16px;
+  background: var(--line);
   flex: none;
 }
 .head .nm {
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.01em;
-}
-.head .count {
-  margin-left: auto;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--teal-soft);
-  letter-spacing: 0.1em;
-  border: 1px solid #1f3a3a;
-  border-radius: 6px;
-  padding: 2px 7px;
+  font-weight: 600;
+  color: var(--text-strong);
 }
 
-/* ---- list ---- */
+/* Scrolls only past the window's tallest size (640, less the 52px title bar). */
 .body {
-  max-height: 460px;
+  max-height: 588px;
   overflow-y: auto;
 }
 
+/* ---- view heading (Kumo: related text close together) ---- */
+.view-head {
+  padding: 16px 16px 12px;
+}
+.view-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-strong);
+}
+.view-sub {
+  margin: 2px 0 0;
+  color: var(--text-subtle);
+}
+
+/* ---- lane list ---- */
+.list {
+  border-top: 1px solid var(--hairline);
+}
 .lane {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 11px 15px;
-  transition: background 0.16s ease;
-  outline: none;
+  gap: 12px;
+  padding: 10px 16px;
 }
-.lane + .lane {
-  border-top: 1px solid rgba(30, 46, 46, 0.6);
-}
-.lane:hover,
-.lane.sel {
-  background: rgba(22, 163, 163, 0.09);
-}
-.lane.launchable {
-  cursor: pointer;
-}
-.lane .dotlane {
-  width: 3px;
-  height: 30px;
-  border-radius: 3px;
-  flex: none;
-}
-.lane .ic {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 600;
-  color: #cfe;
-  border: 1px solid var(--line);
+.lane + .lane,
+.row-colors + .lane {
+  border-top: 1px solid var(--hairline);
 }
 .lane .meta {
   display: flex;
   flex-direction: column;
-  line-height: 1.25;
+  flex: 1;
   min-width: 0;
-}
-.lane .app {
-  font-size: 13.5px;
-  font-weight: 600;
+  gap: 2px;
 }
 .lane .prof {
-  font-size: 11.5px;
-  color: var(--muted);
+  padding-left: 10px;
+  font-size: 13px;
+  color: var(--text-subtle);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.lane .spacer {
-  margin-left: auto;
+.row-colors {
+  padding: 0 16px 12px 56px;
 }
-/* a small "running" pip on open lanes */
-.lane .live {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--teal-soft);
-  box-shadow: 0 0 0 3px rgba(22, 163, 163, 0.18);
-  flex: none;
-}
-.lane .go {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--teal-soft);
-  font-size: 13px;
-  flex: none;
+.row-colors .swatches {
+  margin: 0;
 }
 
-/* manage-mode controls */
-.lane .row-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 6px;
-}
-.icon-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+/* App monogram tile, filled with the lane's colour (set inline). */
+.ic {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  flex: none;
   display: grid;
   place-items: center;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  font-size: 12px;
-  transition:
-    color 0.16s,
-    border-color 0.16s,
-    background 0.16s;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--brand);
+}
+button.ic:hover {
+  box-shadow:
+    0 0 0 2px var(--base),
+    0 0 0 3.5px var(--line);
+}
+
+/* Kumo ghost icon button. */
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  color: var(--text-subtle);
 }
 .icon-btn:hover {
-  color: var(--white);
-  border-color: var(--teal-soft);
-  background: rgba(22, 163, 163, 0.08);
+  background: var(--tint);
+  color: var(--text-default);
 }
 .icon-btn.danger:hover {
-  color: #ff9a9a;
-  border-color: #6a2a2a;
-  background: rgba(255, 80, 80, 0.08);
+  background: var(--danger-tint);
+  color: var(--text-danger);
 }
 
-/* inline rename input */
+/* ---- inputs (Kumo Input, base: h-9 rounded-lg px-3 text-base) ---- */
+.text-input,
 .rename-input {
-  flex: 1;
+  height: 36px;
+  width: 100%;
   min-width: 0;
-  background: var(--ink-deeper);
-  border: 1px solid var(--teal-soft);
-  border-radius: 7px;
-  color: var(--white);
-  font-size: 13px;
-  padding: 6px 9px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--control);
+  color: var(--text-default);
+  font-size: 14px;
+  box-shadow: 0 0 0 1px var(--line);
   outline: none;
 }
+.text-input::placeholder {
+  color: var(--text-placeholder);
+}
+.text-input:focus,
+.rename-input:focus {
+  box-shadow: 0 0 0 1.5px var(--focus);
+}
+/* Rename in place: reads as the lane's name until hovered or focused. */
+.rename-input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  box-shadow: none;
+  font-weight: 500;
+  color: var(--text-strong);
+}
+.rename-input:hover:not(:focus) {
+  box-shadow: 0 0 0 1px var(--line);
+}
+.rename-input:focus {
+  background: var(--control);
+}
 
-/* ---- adopt strip (existing session) ---- */
+/* ---- buttons (Kumo Button, base: h-9 gap-1.5 rounded-lg px-3 text-base) ---- */
+.btn,
+.foot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.btn {
+  flex: 1;
+}
+/* Primary and destructive: Kumo's emphasis recipe (a light ring, a top-down
+   gradient into the token, a 1px inner highlight, white text). */
+.btn-primary,
+.btn-danger {
+  --emph: var(--brand);
+  color: #fff;
+  background: var(--emph);
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in oklch, var(--emph), white 15%),
+    var(--emph)
+  );
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--emph), black 10%),
+    inset 0 1px 0 0 color-mix(in oklch, var(--emph), white 30%);
+}
+.btn-danger {
+  --emph: var(--danger);
+}
+.btn-primary:not(:disabled):hover,
+.btn-danger:not(:disabled):hover {
+  background-image: none;
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+}
+/* Secondary: base surface with a ring. */
+.btn-ghost,
+.foot-btn {
+  background: var(--base);
+  color: var(--text-default);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.btn-ghost:hover,
+.foot-btn:hover {
+  background: var(--tint);
+}
+
+/* ---- adopt card (existing session) ---- */
 .adopt {
-  margin: 10px 12px 4px;
-  padding: 12px 13px;
-  border: 1px solid #24403f;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(22, 163, 163, 0.1), rgba(22, 163, 163, 0.03));
+  margin: 0 16px 16px;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--card-shadow);
 }
 .adopt-hd {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 11px;
-}
-.adopt-hd .ic {
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 600;
-  color: #cfe;
-  border: 1px solid var(--line);
+  margin-bottom: 12px;
 }
 .adopt-t {
   display: flex;
   flex-direction: column;
   line-height: 1.3;
   min-width: 0;
+  gap: 2px;
 }
 .adopt-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--text-strong);
 }
 .adopt-sub {
-  font-size: 11px;
-  color: var(--muted);
+  font-size: 13px;
+  color: var(--text-subtle);
 }
-.adopt-hd .live {
+.live {
   margin-left: auto;
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--teal-soft);
-  box-shadow: 0 0 0 3px rgba(22, 163, 163, 0.18);
+  background: var(--success);
   flex: none;
 }
 .adopt-row {
@@ -271,335 +414,240 @@ button {
 }
 .adopt-input {
   flex: 1;
-  min-width: 0;
-  margin-bottom: 0;
-  padding: 8px 10px;
-  font-size: 13px;
 }
 .adopt-btn {
   flex: 0 0 auto;
-  padding: 8px 16px;
-}
-
-/* "current" badge on an adopted default lane */
-.app-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.badge {
-  font-family: var(--mono);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--teal-soft);
-  border: 1px solid #1f3a3a;
-  border-radius: 5px;
-  padding: 1px 5px;
 }
 
 .empty-hint {
-  padding: 12px 16px 16px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.c-note {
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.55;
-  background: var(--ink-deeper);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 16px;
-}
-
-/* ---- empty state ---- */
-.empty {
-  padding: 30px 22px 26px;
-  text-align: center;
-}
-.empty .e-title {
-  font-size: 14px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-.empty .e-sub {
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.5;
-  margin-bottom: 18px;
+  margin: 0;
+  padding: 4px 16px 16px;
+  color: var(--text-subtle);
 }
 
 /* ---- footer ---- */
 .foot {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--line);
-  background: rgba(10, 20, 22, 0.6);
+  padding: 12px 16px;
+  border-top: 1px solid var(--hairline);
+  background: var(--elevated);
 }
-.foot-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 7px 11px;
-  border-radius: 9px;
-  color: var(--white);
-  border: 1px solid var(--line);
-  transition:
-    background 0.16s,
-    border-color 0.16s;
+.foot .btn {
+  flex: none;
 }
-.foot-btn:hover {
-  background: rgba(22, 163, 163, 0.09);
-  border-color: var(--teal-soft);
-}
-.foot-btn .plus {
-  font-size: 15px;
-  line-height: 1;
-  color: var(--teal-soft);
-}
-.foot-right {
+.foot .done {
   margin-left: auto;
-  display: flex;
-  gap: 4px;
-}
-.foot-link {
-  font-size: 12px;
-  color: var(--muted);
-  padding: 6px 8px;
-  border-radius: 7px;
-  transition:
-    color 0.16s,
-    background 0.16s;
-}
-.foot-link:hover {
-  color: var(--white);
-  background: rgba(255, 255, 255, 0.05);
-}
-.foot-link.active {
-  color: var(--teal-soft);
 }
 
-/* ---- add form / confirm (secondary views) ---- */
-.form {
-  padding: 14px 15px 4px;
+/* Kumo Select, base: an input with a chevron. */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 36px;
+  margin-bottom: 16px;
+  padding: 0 32px 0 12px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--control)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='%23888'%3E%3Cpath d='M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z'/%3E%3C/svg%3E")
+    no-repeat right 10px center / 14px;
+  color: var(--text-default);
+  font: inherit;
+  box-shadow: 0 0 0 1px var(--line);
+  outline: none;
 }
+.select:focus {
+  box-shadow: 0 0 0 1.5px var(--focus);
+}
+.select:focus-visible {
+  outline: none;
+}
+/* Notes under a form: a recessed panel of icon + text lines. */
+.notes {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 20px;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  background: var(--recessed);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-subtle);
+}
+/* Icon slot one text line tall, so the icon centres on the first line. */
+.line-icon {
+  height: 20px;
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+/* ---- add form / adopt / confirm ---- */
+.form {
+  padding: 0 16px;
+}
+/* Kumo field label: text-base font-medium, close to its control. */
 .form .f-label {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 9px;
+  font-weight: 500;
+  color: var(--text-default);
+  margin: 0 0 6px;
 }
 .app-picks {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 .app-pick {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 11px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  transition:
-    border-color 0.16s,
-    background 0.16s;
+  height: 40px;
+  padding: 0 12px 0 6px;
+  border-radius: var(--radius-lg);
+  background: var(--base);
+  box-shadow: 0 0 0 1px var(--line);
 }
 .app-pick .ic {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
-  color: #cfe;
-  border: 1px solid var(--line);
+  font-size: 12px;
+  border-radius: var(--radius-sm);
 }
 .app-pick .an {
-  font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+}
+.app-pick:not(:disabled):not(.sel):hover {
+  background: var(--tint);
 }
 .app-pick.sel {
-  border-color: var(--teal-soft);
-  background: rgba(22, 163, 163, 0.1);
+  background: var(--selected);
+  box-shadow: 0 0 0 1.5px var(--brand);
 }
-.app-pick.disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.app-pick:disabled {
+  opacity: 0.5;
 }
 .app-pick .ni {
-  font-size: 10px;
-  color: var(--muted);
-  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-subtle);
 }
 
-.text-input {
-  width: 100%;
-  background: var(--ink-deeper);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  color: var(--white);
-  font-size: 13.5px;
-  padding: 10px 12px;
-  outline: none;
-  margin-bottom: 16px;
-  transition: border-color 0.16s;
-}
-.text-input:focus {
-  border-color: var(--teal-soft);
+.form .text-input {
+  margin-bottom: 20px;
 }
 
 .swatches {
   display: flex;
-  gap: 8px;
-  margin-bottom: 18px;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 .swatch {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 2px solid transparent;
-  transition:
-    transform 0.16s,
-    border-color 0.16s;
-}
-.swatch:hover {
-  transform: scale(1.12);
 }
 .swatch.sel {
-  border-color: var(--white);
+  box-shadow:
+    0 0 0 2px var(--base),
+    0 0 0 4px var(--focus);
 }
 
 .form-actions {
   display: flex;
-  gap: 9px;
-  padding: 4px 0 12px;
+  gap: 8px;
+  padding: 4px 16px 16px;
 }
-.btn {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 10px;
-  border-radius: 10px;
-  transition:
-    transform 0.14s,
-    box-shadow 0.2s,
-    background 0.16s;
-}
-.btn-primary {
-  background: var(--grad);
-  color: #fff;
-  box-shadow: 0 6px 22px -10px rgba(0, 128, 128, 0.7);
-}
-.btn-primary:hover {
-  transform: translateY(-1px);
-}
-.btn-primary:disabled {
-  opacity: 0.5;
-  transform: none;
-  box-shadow: none;
-}
-.btn-ghost {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--line);
-  color: var(--white);
-}
-.btn-ghost:hover {
-  border-color: var(--teal-soft);
-}
-.btn-danger {
-  background: linear-gradient(110deg, #a23, #c44);
-  color: #fff;
+.form .form-actions {
+  padding: 4px 0 16px;
 }
 
+/* Kumo danger banner. */
 .err {
-  color: #ff9a9a;
-  font-size: 12px;
-  padding: 0 0 12px;
-  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 16px 16px;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--danger-tint);
+  color: var(--text-danger);
+  font-size: 13px;
+  line-height: 20px;
+  user-select: text;
+}
+.form .err {
+  margin: 0 0 16px;
 }
 
-/* confirm view */
-.confirm {
-  padding: 16px 16px 4px;
+.confirm .c-note,
+.confirm .c-path,
+.confirm .check {
+  margin: 0 16px 16px;
 }
-.confirm .c-title {
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 8px;
+.c-note {
+  font-size: 13px;
+  color: var(--text-subtle);
+  background: var(--recessed);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  box-shadow: inset 0 0 0 1px var(--hairline);
 }
-.confirm .c-text {
-  font-size: 12.5px;
-  color: var(--muted);
-  line-height: 1.55;
-  margin-bottom: 14px;
-}
-.confirm .c-path {
+.c-path {
   font-family: var(--mono);
-  font-size: 11px;
-  color: #bfe;
-  background: var(--ink-deeper);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 9px 11px;
+  font-size: 12px;
+  color: var(--text-default);
+  background: var(--recessed);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
   word-break: break-all;
-  margin-bottom: 14px;
+  user-select: text;
+  box-shadow: inset 0 0 0 1px var(--hairline);
 }
 .check {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
-  font-size: 12.5px;
-  color: var(--white);
-  margin-bottom: 16px;
-  cursor: pointer;
+  gap: 10px;
+  font-weight: 500;
+  color: var(--text-default);
 }
 .check input {
-  margin-top: 2px;
-  accent-color: var(--teal);
+  margin: 3px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
 }
 .check .sub {
-  color: var(--muted);
   display: block;
-  font-size: 11.5px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-subtle);
   margin-top: 2px;
 }
 
-/* focus visibility */
+/* focus visibility (Kumo: a 2px ring in the focus colour) */
 :focus-visible {
-  outline: 2px solid var(--teal-soft);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
-  border-radius: 8px;
+}
+/* Inputs show Kumo's own 1.5px focus ring instead. */
+.text-input:focus-visible,
+.rename-input:focus-visible {
+  outline: none;
 }
 
 ::-webkit-scrollbar {
   width: 8px;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(159, 180, 180, 0.18);
-  border-radius: 8px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-    animation: none !important;
-  }
-  .swatch:hover,
-  .btn-primary:hover {
-    transform: none;
-  }
+  background: var(--line);
+  border-radius: 999px;
 }

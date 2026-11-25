@@ -29,13 +29,19 @@ trick — and the whole product.
 
 This is the entire safety story, and it's not a slogan — it's the mechanism:
 
-- **No token handling.** Lanes only *chooses a directory* and *spawns a process*. It never reads,
-  copies, moves, or writes your login/session material. Other account switchers shuffle
-  credentials around; Lanes doesn't have to.
+- **No token handling.** To open a lane, Lanes only *chooses a directory* and *spawns a process*.
+  It never reads, copies, moves, or writes your login/session material. Other account switchers
+  shuffle credentials around; Lanes doesn't have to.
+- **Copying a setup skips sign-in.** *Copy Setup Between Lanes…* copies a fixed list of Claude's
+  local files (settings, MCP servers, plugins, the Code and Cowork session list) and re-files them
+  under the other lane's account. It never copies `config.json` (where Claude keeps its sign-in
+  tokens; Lanes reads only the account and organisation IDs from it), cookies or browser storage.
+  Chats and projects live on claude.ai with each account and can't be copied. This follows
+  Claude's internal file layout, which an update can change (`src-tauri/src/copy.rs`).
 - **No network, ever.** Zero analytics, zero phone-home, zero update checks. Lanes makes no network
   requests at all. Everything happens locally on your Mac.
-- **Menu-bar only.** No Dock icon, no main window, no background services. The dropdown is the
-  entire app. It's about 3 MB.
+- **Menu-bar only.** No Dock icon and no background services: a native macOS menu, plus a small
+  window for adding and managing lanes. It's about 3 MB.
 - **Open source.** Every line is here. Read it, build it yourself, or trust that others can.
 
 ## Supported apps
@@ -62,18 +68,22 @@ app version exposes a working isolation path, adding it is one line — no other
 
 ## How to use
 
-1. Click the **Lanes** icon in the menu bar.
-2. **Already signed into Claude?** Lanes detects your current session and offers to adopt it —
-   just give it a name (`Personal`, `Work`…). That existing account becomes a lane, no re-login.
-3. **+ Add profile** → pick Claude, name a *new* lane, pick a color. Sign in once per new lane.
-4. Click a lane. The real Claude app opens on that account. Click another and they run side by
-   side — the login stays put.
-5. **Manage** lets you rename or remove a lane. Removing a Lanes-created lane offers to delete its
-   data folder, naming the exact path first. An **adopted** lane never offers that — removing it
-   just drops it from Lanes and leaves your real Claude data untouched.
+1. Click the **Lanes** icon in the menu bar. It opens a native macOS menu listing your lanes.
+2. **Already signed into Claude?** Choose **Add Current Claude Session…** and give it a name
+   (`Personal`, `Work`…). That existing account becomes a lane, no re-login.
+3. **Add Lane…** → pick Claude, name a *new* lane, pick a colour. Sign in once per new lane.
+4. Choose a lane in the menu. The real Claude app opens on that account. Choose another and they
+   run side by side — the login stays put. Open lanes are ticked.
+5. **Manage Lanes…** lets you rename, recolour or remove a lane. Removing a Lanes-created lane
+   offers to delete its data folder, naming the exact path first. An **adopted** lane never offers
+   that — removing it just drops it from Lanes and leaves your real Claude data untouched.
+6. **Copy Setup Between Lanes…** makes a new lane match an existing one: same settings, MCP
+   servers, plugins and Code/Cowork sessions, under the new lane's own account. Sign in to the
+   new lane once and quit it first. Copied sessions keep their original folders, so both lanes
+   work on the same files.
 
 Profiles live in `~/Library/Application Support/Lanes/` (a small `lanes.json` plus one folder per
-profile). Lanes never looks inside those folders — it just hands the path to the app.
+profile). Opening a lane never looks inside those folders — it just hands the path to the app.
 
 ## Build from source
 
@@ -85,17 +95,19 @@ npm run tauri dev      # run locally
 npm run tauri build    # produce Lanes.app + a .dmg in src-tauri/target/release/bundle/
 ```
 
-Stack: [Tauri v2](https://tauri.app) (Rust core + system tray + a small webview for the dropdown).
-The privileged surface is a handful of vetted Rust commands; the UI is plain HTML/CSS/JS reusing the
-Synthetixis brand tokens. No UI framework, no network plugins, no auto-updater.
+Stack: [Tauri v2](https://tauri.app) (Rust core + a native AppKit menu + a small webview window for managing lanes).
+The privileged surface is a handful of vetted Rust commands; the UI is plain HTML/CSS/JS styled after
+Appbox's Kumo theme (Cloudflare's Kumo design system with Appbox colours), with Geist bundled locally.
+No UI framework, no network plugins, no auto-updater.
 
 ```
 src-tauri/src/
   apps.rs        # known-apps table (data-driven) + install detection
   profiles.rs    # JSON load/save, data-dir create/delete, atomic writes
   launch.rs      # spawn the app binary directly with --user-data-dir (never `open`)
-  lib.rs         # tray, panel positioning, the command surface
-ui/              # index.html · panel.css · panel.js  (the dropdown)
+  menu.rs        # the menu-bar item and its native NSMenu (macOS)
+  lib.rs         # manager window, the command surface
+ui/              # index.html · panel.css · panel.js  (the manager window)
 ```
 
 ## Distribution

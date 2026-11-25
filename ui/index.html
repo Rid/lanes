@@ -8,34 +8,24 @@
 </head>
 <body>
   <main class="panel" id="panel">
-    <!-- Header -->
-    <header class="head">
-      <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="g" x1="0" y1="0" x2="24" y2="24">
-            <stop offset="0" stop-color="#008080" /><stop offset="1" stop-color="#4374BA" />
-          </linearGradient>
-        </defs>
-        <rect x="3" y="3" width="5" height="18" rx="2.5" fill="url(#g)" />
-        <rect x="10" y="3" width="5" height="18" rx="2.5" fill="url(#g)" opacity=".7" />
-        <rect x="17" y="3" width="4" height="18" rx="2" fill="url(#g)" opacity=".4" />
-      </svg>
-      <span class="nm">Lanes</span>
-      <span class="count" id="count" hidden></span>
+    <!-- Title bar: the window's traffic lights sit at its left. Draggable. -->
+    <header class="head" data-tauri-drag-region>
+      <span class="wordmark" role="img" aria-label="Appbox" data-tauri-drag-region></span>
+      <span class="sep" aria-hidden="true" data-tauri-drag-region></span>
+      <span class="nm" data-tauri-drag-region>Lanes</span>
     </header>
 
-    <!-- Lane list / empty state (rendered by panel.js) -->
-    <div class="body" id="body" role="list"></div>
+    <!-- The current view (rendered by panel.js) -->
+    <div class="body" id="body"></div>
 
-    <!-- Footer -->
+    <!-- Footer (lane list only) -->
     <footer class="foot" id="foot">
-      <button class="foot-btn add" id="addBtn" type="button">
-        <span class="plus" aria-hidden="true">+</span> Add profile
+      <button class="foot-btn" id="addBtn" type="button">
+        <svg class="icon" viewBox="0 0 256 256" aria-hidden="true"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z" /></svg>
+        Add lane
       </button>
-      <div class="foot-right">
-        <button class="foot-link" id="manageBtn" type="button">Manage</button>
-        <button class="foot-link" id="quitBtn" type="button">Quit</button>
-      </div>
+      <button class="foot-btn" id="copyBtn" type="button">Copy setup…</button>
+      <button class="btn btn-ghost done" id="doneBtn" type="button">Done</button>
     </footer>
   </main>
 

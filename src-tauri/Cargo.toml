@@ -13,11 +13,42 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# tray-icon: the menu-bar status item is the entire UI surface.
-# macos-private-api: enables the transparent, rounded popover window.
-tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+# No tray-icon feature: the menu-bar item is a native NSStatusItem with an NSMenu
+# (src/menu.rs), so macOS handles its highlight and behaviour like any menu.
+tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# macOS only: the menu-bar item and its native menu. These are the AppKit
+# bindings Tauri itself already builds on, at the same versions.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSData",
+  "NSGeometry",
+  "NSString",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "NSAlert",
+  "NSApplication",
+  "NSBezierPath",
+  "NSButton",
+  "NSCell",
+  "NSColor",
+  "NSControl",
+  "NSImage",
+  "NSMenu",
+  "NSMenuItem",
+  "NSResponder",
+  "NSStatusBar",
+  "NSStatusBarButton",
+  "NSStatusItem",
+  "NSView",
+] }
 
 # Lanes makes ZERO network requests. No HTTP/updater/opener plugins are pulled in
 # on purpose — the only "action" the app takes is spawning a local process.

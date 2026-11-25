@@ -30,7 +30,7 @@ pub const KNOWN_APPS: &[KnownApp] = &[KnownApp {
     key: "claude",
     name: "Claude",
     monogram: "C",
-    default_color: "#008080",
+    default_color: "#593ee8",
     bundle: "Claude.app",
     binary: "Claude",
     default_dir_name: "Claude",
