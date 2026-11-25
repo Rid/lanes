@@ -5,7 +5,7 @@ Lanes is a free, independent app that isn't notarized by Apple yet, so macOS ask
 
 ## Install
 
-1. Download **`Lanes-0.1.0.dmg`**.
+1. Download **`Lanes.dmg`**.
 2. Open it and drag **Lanes** into your **Applications** folder.
 3. Double-click **Lanes** in Applications.
 

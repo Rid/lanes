@@ -51,7 +51,7 @@ app version exposes a working isolation path, adding it is one line — no other
 
 ## Install
 
-1. Download `Lanes-0.1.0.dmg` from [Releases](https://github.com/synthetixis/lanes/releases).
+1. Download `Lanes.dmg` from [Releases](https://github.com/synthetixis/lanes/releases).
 2. Open it and drag **Lanes** into your Applications folder.
 3. Launch it. Lanes appears in your **menu bar** (no Dock icon).
 

@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Profile {
@@ -46,11 +46,22 @@ fn config_path() -> PathBuf {
     lanes_root().join("lanes.json")
 }
 
-pub fn load() -> Store {
-    match fs::read_to_string(config_path()) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => Store::default(),
+/// Read the store. A missing file is an empty store, but a file that exists and
+/// can't be read or parsed is an error: every change goes load → modify → save, so
+/// treating it as empty would overwrite (and lose) all existing profiles.
+fn read_store() -> Result<Store, String> {
+    let path = config_path();
+    match fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s)
+            .map_err(|e| format!("Couldn't parse {}: {e}", path.display())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Store::default()),
+        Err(e) => Err(format!("Couldn't read {}: {e}", path.display())),
     }
+}
+
+/// Best-effort read for display only. Never save what this returns.
+pub fn load() -> Store {
+    read_store().unwrap_or_default()
 }
 
 /// Write the store atomically (temp file + rename) so a crash mid-write can't
@@ -105,7 +116,7 @@ pub fn add(app_key: &str, label: &str, color: &str) -> Result<Profile, String> {
     if label.is_empty() {
         return Err("Profile name can't be empty.".into());
     }
-    let mut store = load();
+    let mut store = read_store()?;
     let base = format!("{}-{}", app_key, slugify(label));
     let id = unique_id(&store, &base);
     let dir = profiles_dir().join(&id);
@@ -135,7 +146,7 @@ pub fn adopt(app_key: &str, label: &str) -> Result<Profile, String> {
     }
     let default_dir = app.default_data_dir().to_string_lossy().to_string();
 
-    let mut store = load();
+    let mut store = read_store()?;
     if store.profiles.iter().any(|p| p.data_dir == default_dir) {
         return Err("This session is already added as a lane.".into());
     }
@@ -160,7 +171,7 @@ pub fn rename(id: &str, label: &str) -> Result<(), String> {
     if label.is_empty() {
         return Err("Profile name can't be empty.".into());
     }
-    let mut store = load();
+    let mut store = read_store()?;
     let p = store
         .profiles
         .iter_mut()
@@ -171,7 +182,7 @@ pub fn rename(id: &str, label: &str) -> Result<(), String> {
 }
 
 pub fn set_color(id: &str, color: &str) -> Result<(), String> {
-    let mut store = load();
+    let mut store = read_store()?;
     let p = store
         .profiles
         .iter_mut()
@@ -181,10 +192,19 @@ pub fn set_color(id: &str, color: &str) -> Result<(), String> {
     save(&store).map_err(|e| format!("Couldn't save profiles: {e}"))
 }
 
+/// Only a folder directly inside our profiles dir may be deleted. `starts_with`
+/// alone also accepted the profiles dir itself (every lane's data) and `..`
+/// escapes such as `profiles/../..`, either of which a damaged or hand-edited
+/// lanes.json could contain.
+fn is_deletable(dir: &Path) -> bool {
+    dir.parent() == Some(profiles_dir().as_path())
+        && matches!(dir.components().next_back(), Some(Component::Normal(_)))
+}
+
 /// Remove a profile. If `delete_data`, also delete its data directory — but only
 /// if it's safely inside our profiles dir (never an arbitrary path).
 pub fn remove(id: &str, delete_data: bool) -> Result<(), String> {
-    let mut store = load();
+    let mut store = read_store()?;
     let idx = store
         .profiles
         .iter()
@@ -195,8 +215,7 @@ pub fn remove(id: &str, delete_data: bool) -> Result<(), String> {
 
     if delete_data {
         let dir = PathBuf::from(&profile.data_dir);
-        let safe = dir.starts_with(profiles_dir());
-        if safe && dir.exists() {
+        if is_deletable(&dir) && dir.exists() {
             fs::remove_dir_all(&dir)
                 .map_err(|e| format!("Profile removed, but couldn't delete data dir: {e}"))?;
         }
@@ -230,5 +249,17 @@ mod tests {
         };
         assert_eq!(unique_id(&store, "claude-work"), "claude-work-2");
         assert_eq!(unique_id(&store, "claude-personal"), "claude-personal");
+    }
+
+    #[test]
+    fn only_lane_folders_are_deletable() {
+        let root = profiles_dir();
+        assert!(is_deletable(&root.join("claude-work")));
+        assert!(!is_deletable(&root));
+        assert!(!is_deletable(&root.join("..")));
+        assert!(!is_deletable(&root.join("../..")));
+        assert!(!is_deletable(&root.join("claude-work/nested")));
+        assert!(!is_deletable(&lanes_root()));
+        assert!(!is_deletable(Path::new("/tmp/claude-work")));
     }
 }

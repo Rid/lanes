@@ -210,11 +210,20 @@ function manageRow(p) {
   input.setAttribute("aria-label", `Rename ${app ? app.name : p.app} profile`);
   const save = () => {
     const v = input.value.trim();
-    if (v && v !== p.label) invoke("rename_profile", { id: p.id, label: v }).then(refresh);
+    if (!v) {
+      input.value = p.label; // an emptied name reverts instead of sitting blank
+      return;
+    }
+    if (v !== p.label) {
+      invoke("rename_profile", { id: p.id, label: v })
+        .then(refresh)
+        .catch(() => (input.value = p.label));
+    }
   };
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") input.blur();
     if (e.key === "Escape") {
+      e.stopPropagation(); // cancel the edit only; don't also hide the panel
       input.value = p.label;
       input.blur();
     }
@@ -286,9 +295,10 @@ function renderAdd(body) {
     state.draft.label = input.value;
     addBtn.disabled = !canAdd();
   });
+  // Escape is handled by the document listener; handling it here too closed the
+  // form and then hid the whole panel, because the event still bubbled up.
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && canAdd()) submitAdd();
-    if (e.key === "Escape") closeForm();
   });
   form.appendChild(input);
 
@@ -481,6 +491,10 @@ document.addEventListener("keydown", (e) => {
     return invoke("hide_panel");
   }
   if (state.mode !== "list" || state.profiles.length === 0) return;
+  // Keys typed into a field, or Enter on a focused button, belong to that control.
+  // Without this, Enter in the adopt box (or on "Quit") also launched a lane, and
+  // the arrow keys re-rendered the list and wiped what was typed.
+  if (e.target.closest("input, button")) return;
   if (e.key === "ArrowDown") {
     e.preventDefault();
     state.selected = Math.min(state.profiles.length - 1, state.selected + 1);

@@ -7,17 +7,23 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// Launch `binary` pointed at `data_dir`. Detached: we never wait on the child, so
-/// quitting Lanes never takes the launched app down with it.
+/// Launch `binary` pointed at `data_dir`. Quitting Lanes never takes the launched
+/// app down with it.
 pub fn launch(binary: &Path, data_dir: &Path) -> std::io::Result<u32> {
     std::fs::create_dir_all(data_dir)?;
-    let child = Command::new(binary)
+    let mut child = Command::new(binary)
         .arg(format!("--user-data-dir={}", data_dir.display()))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
-    Ok(child.id())
+    let pid = child.id();
+    // Reap the child when it exits; otherwise every app quit while Lanes is still
+    // running leaves a zombie process behind until Lanes itself quits.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(pid)
 }
 
 /// Every running process's full command line, one per entry. Best-effort: empty on

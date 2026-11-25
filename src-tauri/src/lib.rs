@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use tauri::tray::{MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{
-    ActivationPolicy, LogicalSize, Manager, PhysicalPosition, Runtime, WindowEvent,
+    ActivationPolicy, LogicalPosition, LogicalSize, Manager, Runtime, WindowEvent,
 };
 
 /// Tracks when the panel was last auto-hidden (on blur), so a click on the tray
@@ -191,27 +191,47 @@ fn quit<R: Runtime>(app: tauri::AppHandle<R>) {
 
 // ---- tray + panel positioning ----
 
+/// The display holding `point` (physical pixels at that display's own scale, as
+/// the tray rect is reported), as `(scale, left, right)` with edges in logical
+/// points. macOS screen coordinates are global logical points, so a pixel value
+/// only maps onto a display when read at that display's scale.
+fn display_at<R: Runtime>(
+    win: &tauri::WebviewWindow<R>,
+    point: tauri::Position,
+) -> Option<(f64, f64, f64)> {
+    win.available_monitors().ok()?.iter().find_map(|m| {
+        let scale = m.scale_factor();
+        let p = point.to_logical::<f64>(scale);
+        let origin = m.position().to_logical::<f64>(scale);
+        let size = m.size().to_logical::<f64>(scale);
+        let inside = (origin.x..origin.x + size.width).contains(&p.x)
+            && (origin.y..origin.y + size.height).contains(&p.y);
+        inside.then_some((scale, origin.x, origin.x + size.width))
+    })
+}
+
 fn show_panel<R: Runtime>(app: &tauri::AppHandle<R>, rect: tauri::Rect) {
     let Some(win) = app.get_webview_window("main") else {
         return;
     };
-    let scale = win.scale_factor().unwrap_or(1.0);
-    let icon_pos = rect.position.to_physical::<f64>(scale);
-    let icon_size = rect.size.to_physical::<f64>(scale);
-    let win_size = win.outer_size().map(|s| s.width as f64).unwrap_or(PANEL_WIDTH * scale);
+    // Every display has its own menu bar, so the panel belongs on the display the
+    // clicked icon is on. (Clamping to the primary display's width used to throw
+    // it onto the primary display when the icon was clicked on another one.)
+    let display = display_at(&win, rect.position);
+    let scale = display.map_or_else(|| win.scale_factor().unwrap_or(1.0), |d| d.0);
+    let icon_pos = rect.position.to_logical::<f64>(scale);
+    let icon_size = rect.size.to_logical::<f64>(scale);
 
     // Center the panel under the tray icon, hanging just below the menu bar.
-    let mut x = icon_pos.x + icon_size.width / 2.0 - win_size / 2.0;
+    let mut x = icon_pos.x + icon_size.width / 2.0 - PANEL_WIDTH / 2.0;
     let y = icon_pos.y + icon_size.height;
 
-    // Keep it on-screen near the right edge where the menu bar lives.
-    if let Ok(Some(monitor)) = win.primary_monitor() {
-        let max_x = monitor.size().width as f64 - win_size - 8.0;
-        x = x.min(max_x);
+    // Keep it fully on that display.
+    if let Some((_, left, right)) = display {
+        x = x.min(right - PANEL_WIDTH - 8.0).max(left + 8.0);
     }
-    x = x.max(8.0);
 
-    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.set_position(LogicalPosition::new(x, y));
     let _ = win.show();
     let _ = win.set_focus();
 }
