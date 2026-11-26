@@ -24,7 +24,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
@@ -202,10 +202,50 @@ fn last_activity(bytes: &[u8]) -> Option<i64> {
 struct Run<'a> {
     refile: Refile,
     backup_dir: &'a Path,
+    /// Each lane's `scratch-workspaces`, where "No folder" sessions live.
+    src_scratch: PathBuf,
+    dst_scratch: PathBuf,
     summary: Summary,
 }
 
 impl Run<'_> {
+    /// Point a copied "No folder" session at the target lane's own scratch
+    /// folder. Claude only files a session under "This computer" when its
+    /// `originCwd` is inside that lane's own `scratch-workspaces` (it compares
+    /// paths, not files); otherwise each one shows as a separate folder.
+    /// `cwd`, where the session runs and keeps its history, stays the shared
+    /// original, and a link at the new path leads to that same folder.
+    fn rehome_scratch(&self, bytes: Vec<u8>) -> io::Result<Vec<u8>> {
+        let Some(mut session) = parse(&bytes) else {
+            return Ok(bytes);
+        };
+        let Some(origin) = session.get("originCwd").and_then(Value::as_str) else {
+            return Ok(bytes);
+        };
+        let Ok(rest) = Path::new(origin).strip_prefix(&self.src_scratch) else {
+            return Ok(bytes);
+        };
+        let parts: Vec<_> = rest.components().collect();
+        if parts.len() < 3 {
+            return Ok(bytes);
+        }
+        // <account>/<org>/<scratch-…>, re-filed under the target's IDs.
+        let folder: PathBuf = parts[..3].iter().collect();
+        let link = self
+            .dst_scratch
+            .join(self.refile.text(&folder.to_string_lossy()));
+        if fs::symlink_metadata(&link).is_err() {
+            if let Some(parent) = link.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(self.src_scratch.join(&folder), &link)?;
+        }
+        let new_origin = parts[3..].iter().fold(link, |path, part| path.join(part));
+        session["originCwd"] = Value::String(new_origin.to_string_lossy().into_owned());
+        serde_json::to_vec(&session).map_err(io::Error::other)
+    }
+
     /// Write `bytes` to `dst` (at `rel` inside the lane). Leaves an identical
     /// file alone; otherwise saves what was there under the backup folder first.
     fn put(&mut self, dst: &Path, rel: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -278,15 +318,20 @@ impl Run<'_> {
                 fs::create_dir_all(&target)?;
                 self.copy_folder(&entry.path(), &target, &rel, sessions)?;
             } else if kind.is_file() {
-                let bytes = self.refiled(&entry.path())?;
+                let mut bytes = self.refiled(&entry.path())?;
                 let is_session = sessions && name.starts_with("local_") && name.ends_with(".json");
                 if is_session {
-                    let ours = fs::read(&target).ok().and_then(|b| last_activity(&b));
+                    let existing = fs::read(&target).ok();
+                    let ours = existing.as_deref().and_then(last_activity);
                     if ours.is_some_and(|ours| last_activity(&bytes).is_some_and(|theirs| ours > theirs)) {
+                        // Keep the target's newer copy, but still file it correctly.
                         self.summary.kept_newer += 1;
+                        let kept = self.rehome_scratch(existing.unwrap_or_default())?;
+                        self.put(&target, &rel, &kept)?;
                         continue;
                     }
                     self.summary.sessions += 1;
+                    bytes = self.rehome_scratch(bytes)?;
                 }
                 self.put(&target, &rel, &bytes)?;
             }
@@ -307,6 +352,8 @@ pub fn copy_setup(
     let mut run = Run {
         refile: Refile::new(from_id, to_id),
         backup_dir,
+        src_scratch: from.join("scratch-workspaces"),
+        dst_scratch: to.join("scratch-workspaces"),
         summary: Summary::default(),
     };
     for name in FILES {
@@ -369,6 +416,49 @@ mod tests {
     fn session(activity: i64, title: &str) -> String {
         json!({ "cwd": format!("/Users/x/scratch-workspaces/{SA}/{SO}/s1"), "lastActivityAt": activity, "title": title })
             .to_string()
+    }
+
+    #[test]
+    fn no_folder_sessions_are_filed_under_the_targets_scratch_folder() {
+        let root = scratch("rehome");
+        let (from, to) = (root.join("from"), root.join("to"));
+        let folder = "scratch-2026-01-01-abcdef";
+        let src_dir = from.join(format!("scratch-workspaces/{SA}/{SO}/{folder}"));
+        fs::create_dir_all(&src_dir).unwrap();
+        let src_path = src_dir.to_string_lossy().into_owned();
+        let scratch_session = |activity: i64| {
+            json!({ "cwd": src_path, "originCwd": src_path, "lastActivityAt": activity }).to_string()
+        };
+        let in_sessions = |acct: &str, org: &str, name: &str| format!("{SESSIONS}/{acct}/{org}/{name}");
+
+        write(from.join("config.json"), &config(SA, SO));
+        write(from.join(in_sessions(SA, SO, "local_new.json")), &scratch_session(100));
+        write(from.join(in_sessions(SA, SO, "local_used.json")), &scratch_session(100));
+        write(
+            from.join(in_sessions(SA, SO, "local_repo.json")),
+            &json!({ "cwd": "/Users/x/repo", "originCwd": "/Users/x/repo", "lastActivityAt": 1 }).to_string(),
+        );
+        // Copied earlier by an older Lanes, then used: newer, but filed wrongly.
+        write(to.join("config.json"), &config(TA, TO));
+        write(to.join(in_sessions(TA, TO, "local_used.json")), &scratch_session(200));
+
+        let summary = copy_setup(&from, &ids(SA, SO), &to, &ids(TA, TO), &root.join("backup")).unwrap();
+        assert_eq!(summary.kept_newer, 1);
+
+        let link = to.join(format!("scratch-workspaces/{TA}/{TO}/{folder}"));
+        assert_eq!(fs::read_link(&link).unwrap(), src_dir);
+        for name in ["local_new.json", "local_used.json"] {
+            let s = read_json(to.join(in_sessions(TA, TO, name)));
+            assert_eq!(s["originCwd"], json!(link.to_string_lossy()), "{name}");
+            assert_eq!(s["cwd"], json!(src_path), "{name}: runs in the shared folder");
+        }
+        assert_eq!(read_json(to.join(in_sessions(TA, TO, "local_used.json")))["lastActivityAt"], json!(200));
+        assert_eq!(read_json(to.join(in_sessions(TA, TO, "local_repo.json")))["originCwd"], json!("/Users/x/repo"));
+
+        // Copying again changes nothing.
+        let again = copy_setup(&from, &ids(SA, SO), &to, &ids(TA, TO), &root.join("backup2")).unwrap();
+        assert_eq!(again.files, 0);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
