@@ -80,7 +80,9 @@ app version exposes a working isolation path, adding it is one line — no other
 6. **Copy Setup Between Lanes…** makes a new lane match an existing one: same settings, MCP
    servers, plugins and Code/Cowork sessions, under the new lane's own account. Sign in to the
    new lane once and quit it first. Copied sessions keep their original folders, so both lanes
-   work on the same files.
+   work on the same files. Copying again is safe: a session used more recently in the target is
+   kept, settings are merged rather than replaced, and anything a copy changes is backed up to
+   `~/Library/Application Support/Lanes/backups/` first.
 
 Profiles live in `~/Library/Application Support/Lanes/` (a small `lanes.json` plus one folder per
 profile). Opening a lane never looks inside those folders — it just hands the path to the app.

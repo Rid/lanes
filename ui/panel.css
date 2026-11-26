@@ -484,6 +484,9 @@ button.ic:hover {
   line-height: 20px;
   color: var(--text-subtle);
 }
+.copied-notes {
+  margin: 0 16px 16px;
+}
 /* Icon slot one text line tall, so the icon centres on the first line. */
 .line-icon {
   height: 20px;

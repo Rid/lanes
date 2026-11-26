@@ -16,6 +16,10 @@
 //! starting with `/`) are left alone, so copied sessions keep working in their
 //! original folders, which both lanes then share.
 //!
+//! Copying again into a lane that's been used since is safe: a session the
+//! target has used more recently is kept, settings files are merged rather than
+//! replaced, and any file a copy changes is backed up first.
+//!
 //! This follows Claude's internal file layout, which an update can change.
 
 use std::fs;
@@ -35,8 +39,7 @@ const FOLDERS: &[&str] = &[
     "Claude Extensions Settings",
 ];
 
-/// Settings files copied with IDs re-filed. The target's own copies are backed
-/// up first, since these are replaced rather than merged.
+/// Settings files merged into the target's own, with IDs re-filed.
 const FILES: &[&str] = &[
     "claude_desktop_config.json",
     "ccd-session-presets.json",
@@ -56,7 +59,11 @@ pub struct Identity {
 
 #[derive(serde::Serialize, Debug, Default, PartialEq)]
 pub struct Summary {
+    /// Sessions the target now has from the source (copied or already the same).
     pub sessions: usize,
+    /// Sessions left as they were because the target had used them more recently.
+    pub kept_newer: usize,
+    /// Files written into the target.
     pub files: usize,
 }
 
@@ -148,8 +155,148 @@ impl Refile {
     }
 }
 
+fn parse(bytes: &[u8]) -> Option<Value> {
+    serde_json::from_slice(bytes).ok()
+}
+
+/// Merge the source's settings (`theirs`) into the target's (`ours`): what
+/// only the target has is kept, and the source wins where both have a value.
+/// Lists of items with an `id` merge by id; lists of plain values combine.
+fn merge(ours: Value, theirs: Value) -> Value {
+    match (ours, theirs) {
+        (Value::Object(mut ours), Value::Object(theirs)) => {
+            for (key, value) in theirs {
+                let merged = match ours.remove(&key) {
+                    Some(old) => merge(old, value),
+                    None => value,
+                };
+                ours.insert(key, merged);
+            }
+            Value::Object(ours)
+        }
+        (Value::Array(ours), Value::Array(mut theirs)) => {
+            let id = |v: &Value| v.get("id").and_then(Value::as_str).map(str::to_owned);
+            let plain = |v: &Value| !v.is_object() && !v.is_array();
+            if ours.iter().chain(&theirs).all(|v| id(v).is_some()) {
+                let have: Vec<String> = theirs.iter().filter_map(id).collect();
+                theirs.extend(ours.into_iter().filter(|v| !have.contains(&id(v).unwrap_or_default())));
+            } else if ours.iter().chain(&theirs).all(plain) {
+                for v in ours {
+                    if !theirs.contains(&v) {
+                        theirs.push(v);
+                    }
+                }
+            }
+            Value::Array(theirs)
+        }
+        (_, theirs) => theirs,
+    }
+}
+
+/// When a session was last used, from its `lastActivityAt` (milliseconds).
+fn last_activity(bytes: &[u8]) -> Option<i64> {
+    parse(bytes)?.get("lastActivityAt")?.as_i64()
+}
+
+/// One copy run: the ID swap, where backups go, and the running totals.
+struct Run<'a> {
+    refile: Refile,
+    backup_dir: &'a Path,
+    summary: Summary,
+}
+
+impl Run<'_> {
+    /// Write `bytes` to `dst` (at `rel` inside the lane). Leaves an identical
+    /// file alone; otherwise saves what was there under the backup folder first.
+    fn put(&mut self, dst: &Path, rel: &Path, bytes: &[u8]) -> io::Result<()> {
+        if let Ok(existing) = fs::read(dst) {
+            if existing == bytes {
+                return Ok(());
+            }
+            let backup = self.backup_dir.join(rel);
+            if let Some(parent) = backup.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(backup, existing)?;
+        }
+        fs::write(dst, bytes)?;
+        self.summary.files += 1;
+        Ok(())
+    }
+
+    /// A source file's contents with IDs re-filed, if it's JSON that has them.
+    fn refiled(&self, src: &Path) -> io::Result<Vec<u8>> {
+        let raw = fs::read(src)?;
+        let is_json = src.extension().is_some_and(|e| e == "json");
+        if !is_json || !self.refile.applies_to(&String::from_utf8_lossy(&raw)) {
+            return Ok(raw);
+        }
+        let Some(mut value) = parse(&raw) else {
+            return Ok(raw);
+        };
+        if self.refile.json(&mut value) {
+            serde_json::to_vec(&value).map_err(io::Error::other)
+        } else {
+            Ok(raw)
+        }
+    }
+
+    /// Merge a settings file into the target's own copy. `git-worktrees.json`'s
+    /// clean-up bookkeeping (`untrackedDirGc`) stays the target's: the source's
+    /// is about its own folders.
+    fn merge_settings(&mut self, src: &Path, dst: &Path, rel: &Path) -> io::Result<()> {
+        let incoming = self.refiled(src)?;
+        let Some(mut theirs) = parse(&incoming) else {
+            return self.put(dst, rel, &incoming); // not valid JSON: copy as it is
+        };
+        if let Some(map) = theirs.as_object_mut() {
+            map.remove("untrackedDirGc");
+        }
+        let ours = fs::read(dst).ok().and_then(|b| parse(&b));
+        let merged = match ours {
+            // A different schemaVersion means Claude changed the format: don't mix them.
+            Some(ours) if ours.get("schemaVersion") == theirs.get("schemaVersion") => merge(ours, theirs),
+            _ => theirs,
+        };
+        self.put(dst, rel, &serde_json::to_vec(&merged).map_err(io::Error::other)?)
+    }
+
+    /// Merge the folder `src` into `dst`, re-filing IDs in names. Symlinks are
+    /// skipped. In the session list, a session the target used more recently
+    /// is kept as it is.
+    fn copy_folder(&mut self, src: &Path, dst: &Path, rel: &Path, sessions: bool) -> io::Result<()> {
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name == ".DS_Store" {
+                continue;
+            }
+            let refiled_name = self.refile.text(&name);
+            let (target, rel) = (dst.join(&refiled_name), rel.join(&refiled_name));
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                fs::create_dir_all(&target)?;
+                self.copy_folder(&entry.path(), &target, &rel, sessions)?;
+            } else if kind.is_file() {
+                let bytes = self.refiled(&entry.path())?;
+                let is_session = sessions && name.starts_with("local_") && name.ends_with(".json");
+                if is_session {
+                    let ours = fs::read(&target).ok().and_then(|b| last_activity(&b));
+                    if ours.is_some_and(|ours| last_activity(&bytes).is_some_and(|theirs| ours > theirs)) {
+                        self.summary.kept_newer += 1;
+                        continue;
+                    }
+                    self.summary.sessions += 1;
+                }
+                self.put(&target, &rel, &bytes)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Copy `from`'s Claude setup into `to`. `to`'s Claude must not be running.
-/// Settings files it replaces are first saved under `backup_dir`.
+/// Every file the copy changes in `to` is saved under `backup_dir` first.
 pub fn copy_setup(
     from: &Path,
     from_id: &Identity,
@@ -157,93 +304,26 @@ pub fn copy_setup(
     to_id: &Identity,
     backup_dir: &Path,
 ) -> io::Result<Summary> {
-    let refile = Refile::new(from_id, to_id);
-    let mut summary = Summary::default();
-
+    let mut run = Run {
+        refile: Refile::new(from_id, to_id),
+        backup_dir,
+        summary: Summary::default(),
+    };
     for name in FILES {
         let src = from.join(name);
-        if !src.is_file() {
-            continue;
+        if src.is_file() {
+            run.merge_settings(&src, &to.join(name), Path::new(name))?;
         }
-        let dst = to.join(name);
-        if dst.is_file() {
-            fs::create_dir_all(backup_dir)?;
-            fs::copy(&dst, backup_dir.join(name))?;
-        }
-        copy_file(&src, &dst, &refile, *name == "git-worktrees.json")?;
-        summary.files += 1;
     }
-
     for name in FOLDERS {
         let src = from.join(name);
         if src.is_dir() {
             let dst = to.join(name);
             fs::create_dir_all(&dst)?;
-            copy_folder(&src, &dst, &refile, *name == SESSIONS, &mut summary)?;
+            run.copy_folder(&src, &dst, Path::new(name), *name == SESSIONS)?;
         }
     }
-    Ok(summary)
-}
-
-/// Merge `src` into `dst`, re-filing IDs in names. Symlinks are skipped.
-fn copy_folder(
-    src: &Path,
-    dst: &Path,
-    refile: &Refile,
-    count_sessions: bool,
-    summary: &mut Summary,
-) -> io::Result<()> {
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name == ".DS_Store" {
-            continue;
-        }
-        let target = dst.join(refile.text(&name));
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            fs::create_dir_all(&target)?;
-            copy_folder(&entry.path(), &target, refile, count_sessions, summary)?;
-        } else if kind.is_file() {
-            copy_file(&entry.path(), &target, refile, false)?;
-            summary.files += 1;
-            if count_sessions && name.starts_with("local_") && name.ends_with(".json") {
-                summary.sessions += 1;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Copy one file, re-filing IDs inside it if it's JSON that mentions them.
-/// `drop_gc` removes `git-worktrees.json`'s clean-up bookkeeping, so the target
-/// lane starts its own instead of acting on the source's.
-fn copy_file(src: &Path, dst: &Path, refile: &Refile, drop_gc: bool) -> io::Result<()> {
-    let is_json = src.extension().is_some_and(|e| e == "json");
-    if !is_json {
-        fs::copy(src, dst)?;
-        return Ok(());
-    }
-    let raw = fs::read(src)?;
-    let parsed = std::str::from_utf8(&raw)
-        .ok()
-        .and_then(|s| serde_json::from_str::<Value>(s).ok());
-    let Some(mut value) = parsed else {
-        fs::write(dst, &raw)?; // not valid JSON: copy as it is
-        return Ok(());
-    };
-    let mut changed = false;
-    if drop_gc {
-        changed |= value
-            .as_object_mut()
-            .is_some_and(|m| m.remove("untrackedDirGc").is_some());
-    }
-    changed |= refile.json(&mut value);
-    if changed {
-        fs::write(dst, serde_json::to_vec(&value).map_err(io::Error::other)?)
-    } else {
-        fs::write(dst, &raw)
-    }
+    Ok(run.summary)
 }
 
 #[cfg(test)]
@@ -273,6 +353,10 @@ mod tests {
         fs::write(path, text).unwrap();
     }
 
+    fn read_json(path: PathBuf) -> Value {
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
     fn config(account: &str, org: &str) -> String {
         json!({
             "lastKnownAccountUuid": account,
@@ -280,6 +364,11 @@ mod tests {
             "oauth:tokenCache": "SECRET",
         })
         .to_string()
+    }
+
+    fn session(activity: i64, title: &str) -> String {
+        json!({ "cwd": format!("/Users/x/scratch-workspaces/{SA}/{SO}/s1"), "lastActivityAt": activity, "title": title })
+            .to_string()
     }
 
     #[test]
@@ -325,6 +414,33 @@ mod tests {
     }
 
     #[test]
+    fn merge_keeps_target_only_entries_and_source_wins_conflicts() {
+        let ours = json!({
+            "mine": true,
+            "shared": "old",
+            "presets": [{ "id": "a", "name": "A old" }, { "id": "t", "name": "Target only" }],
+            "origins": ["https://t.example", "https://both.example"],
+            "nested": { "keep": 1, "swap": 1 },
+        });
+        let theirs = json!({
+            "shared": "new",
+            "presets": [{ "id": "a", "name": "A new" }, { "id": "s", "name": "Source only" }],
+            "origins": ["https://both.example", "https://s.example"],
+            "nested": { "swap": 2 },
+        });
+        assert_eq!(
+            merge(ours, theirs),
+            json!({
+                "mine": true,
+                "shared": "new",
+                "presets": [{ "id": "a", "name": "A new" }, { "id": "s", "name": "Source only" }, { "id": "t", "name": "Target only" }],
+                "origins": ["https://both.example", "https://s.example", "https://t.example"],
+                "nested": { "keep": 1, "swap": 2 },
+            })
+        );
+    }
+
+    #[test]
     fn copies_setup_refiled_without_sign_in() {
         let root = scratch("copy");
         let (from, to, backup) = (root.join("from"), root.join("to"), root.join("backup"));
@@ -333,8 +449,7 @@ mod tests {
         write(from.join("config.json"), &config(SA, SO));
         write(from.join("Cookies"), "SECRET");
         write(from.join("Local Storage/leveldb/000003.log"), "SECRET");
-        let session = format!(r#"{{"cwd":"/Users/x/scratch-workspaces/{SA}/{SO}/s1","title":"Fix"}}"#);
-        write(from.join(format!("{SESSIONS}/{SA}/{SO}/local_abc.json")), &session);
+        write(from.join(format!("{SESSIONS}/{SA}/{SO}/local_abc.json")), &session(100, "Fix"));
         write(from.join(format!("{SESSIONS}/{SA}/{SO}/deleted_def")), "");
         write(from.join(format!("local-agent-mode-sessions/skills-plugin/{SO}/{SA}/skills/a.md")), "skill");
         write(from.join("side-session-notes/local_abc/note.md"), "note");
@@ -344,7 +459,7 @@ mod tests {
         );
         write(
             from.join("git-worktrees.json"),
-            &json!({ "worktrees": { "w": {} }, "untrackedDirGc": { "cwds": {} } }).to_string(),
+            &json!({ "worktrees": { "w": {} }, "untrackedDirGc": { "cwds": { "src": 1 } } }).to_string(),
         );
 
         // Target: signed in to another account, with its own settings file.
@@ -352,22 +467,22 @@ mod tests {
         write(to.join("claude_desktop_config.json"), r#"{"mine":true}"#);
 
         let summary = copy_setup(&from, &ids(SA, SO), &to, &ids(TA, TO), &backup).unwrap();
-        assert_eq!(summary.sessions, 1);
+        assert_eq!((summary.sessions, summary.kept_newer), (1, 0));
 
         // Sessions re-filed under the target's account; their paths still shared.
         let copied = fs::read_to_string(to.join(format!("{SESSIONS}/{TA}/{TO}/local_abc.json"))).unwrap();
-        assert_eq!(copied, session);
+        assert_eq!(copied, session(100, "Fix"));
         assert!(to.join(format!("{SESSIONS}/{TA}/{TO}/deleted_def")).exists());
         assert!(to.join(format!("local-agent-mode-sessions/skills-plugin/{TO}/{TA}/skills/a.md")).exists());
         assert!(to.join("side-session-notes/local_abc/note.md").exists());
 
-        // Settings re-filed; the target's old file backed up; GC state dropped.
-        let settings: Value =
-            serde_json::from_str(&fs::read_to_string(to.join("claude_desktop_config.json")).unwrap()).unwrap();
+        // Settings merged and re-filed, the target's old file backed up; the
+        // source's clean-up bookkeeping not copied.
+        let settings = read_json(to.join("claude_desktop_config.json"));
         assert_eq!(settings["preferences"]["byAccount"][TA], json!(true));
+        assert_eq!(settings["mine"], json!(true));
         assert_eq!(fs::read_to_string(backup.join("claude_desktop_config.json")).unwrap(), r#"{"mine":true}"#);
-        let worktrees: Value =
-            serde_json::from_str(&fs::read_to_string(to.join("git-worktrees.json")).unwrap()).unwrap();
+        let worktrees = read_json(to.join("git-worktrees.json"));
         assert!(worktrees.get("untrackedDirGc").is_none());
         assert!(worktrees.get("worktrees").is_some());
 
@@ -376,6 +491,74 @@ mod tests {
         assert!(!to.join("Local Storage").exists());
         assert_eq!(identity(&to), Some(ids(TA, TO)));
         assert!(!fs::read_to_string(to.join("config.json")).unwrap().contains(SA));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn copying_again_keeps_newer_target_work_and_backs_up_changes() {
+        let root = scratch("recopy");
+        let (from, to) = (root.join("from"), root.join("to"));
+        let sessions = |acct: &str, org: &str| format!("{SESSIONS}/{acct}/{org}");
+
+        write(from.join("config.json"), &config(SA, SO));
+        write(from.join(format!("{}/local_newer_in_target.json", sessions(SA, SO))), &session(100, "Source"));
+        write(from.join(format!("{}/local_newer_in_source.json", sessions(SA, SO))), &session(300, "Source"));
+        write(from.join(format!("{}/local_same.json", sessions(SA, SO))), &session(50, "Same"));
+        write(
+            from.join("git-worktrees.json"),
+            &json!({ "schemaVersion": 2, "worktrees": { "from-source": {} }, "untrackedDirGc": { "cwds": { "src": 1 } } })
+                .to_string(),
+        );
+        write(
+            from.join("ccd-session-presets.json"),
+            &json!({ "byAccount": { SA: { "presets": [{ "id": "p1", "name": "Source" }] } } }).to_string(),
+        );
+
+        // Target: already copied once, then used — it has newer and its own work.
+        write(to.join("config.json"), &config(TA, TO));
+        write(to.join(format!("{}/local_newer_in_target.json", sessions(TA, TO))), &session(200, "Target"));
+        write(to.join(format!("{}/local_newer_in_source.json", sessions(TA, TO))), &session(150, "Target"));
+        write(to.join(format!("{}/local_same.json", sessions(TA, TO))), &session(50, "Same"));
+        write(to.join(format!("{}/local_target_only.json", sessions(TA, TO))), &session(10, "Mine"));
+        write(
+            to.join("git-worktrees.json"),
+            &json!({ "schemaVersion": 2, "worktrees": { "from-target": {} }, "untrackedDirGc": { "cwds": { "dst": 1 } } })
+                .to_string(),
+        );
+        write(
+            to.join("ccd-session-presets.json"),
+            &json!({ "byAccount": { TA: { "presets": [{ "id": "p2", "name": "Target" }] } } }).to_string(),
+        );
+
+        let backup = root.join("backup");
+        let summary = copy_setup(&from, &ids(SA, SO), &to, &ids(TA, TO), &backup).unwrap();
+        assert_eq!((summary.sessions, summary.kept_newer), (2, 1));
+
+        let title = |name: &str| read_json(to.join(format!("{}/{name}", sessions(TA, TO))))["title"].clone();
+        assert_eq!(title("local_newer_in_target.json"), json!("Target"));
+        assert_eq!(title("local_newer_in_source.json"), json!("Source"));
+        assert_eq!(title("local_target_only.json"), json!("Mine"));
+
+        // Only files that changed are backed up: the older session, not the identical one.
+        let backed_up = |name: &str| backup.join(format!("{}/{name}", sessions(TA, TO))).exists();
+        assert!(backed_up("local_newer_in_source.json"));
+        assert!(!backed_up("local_same.json"));
+        assert!(!backed_up("local_newer_in_target.json"));
+
+        // Worktrees and presets merged; the target keeps its own clean-up bookkeeping.
+        let worktrees = read_json(to.join("git-worktrees.json"));
+        assert!(worktrees["worktrees"].get("from-source").is_some());
+        assert!(worktrees["worktrees"].get("from-target").is_some());
+        assert_eq!(worktrees["untrackedDirGc"], json!({ "cwds": { "dst": 1 } }));
+        let presets = read_json(to.join("ccd-session-presets.json"));
+        let names: Vec<&str> = presets["byAccount"][TA]["presets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["Source", "Target"]);
 
         fs::remove_dir_all(root).unwrap();
     }

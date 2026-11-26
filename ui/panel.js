@@ -550,12 +550,19 @@ async function submitCopy() {
 }
 
 function renderCopied(body) {
-  const to = state.profiles.find((p) => p.id === state.copy.to);
-  const n = state.copy.result?.sessions ?? 0;
-  const what = n === 1 ? "1 session" : `${n} sessions`;
+  const toLabel = state.profiles.find((p) => p.id === state.copy.to)?.label ?? "the other lane";
+  const sessions = (n) => (n === 1 ? "1 session" : `${n} sessions`);
+  const { sessions: copied = 0, kept_newer: kept = 0 } = state.copy.result ?? {};
   body.appendChild(
-    title("Setup copied", `${what} and your settings are now in “${to ? to.label : "the other lane"}”. Open it from the menu to see them.`),
+    title("Setup copied", `${sessions(copied)} and your settings are now in “${toLabel}”. Open it from the menu to see them.`),
   );
+  if (kept > 0) {
+    const notes = el("div", "notes copied-notes");
+    notes.appendChild(
+      iconLine("note", "folder", `${sessions(kept)} you'd used more recently in “${toLabel}” ${kept === 1 ? "was" : "were"} kept as ${kept === 1 ? "it was" : "they were"}.`),
+    );
+    body.appendChild(notes);
+  }
   const done = el("button", "btn btn-primary", "Done");
   done.type = "button";
   done.addEventListener("click", leaveForm);
