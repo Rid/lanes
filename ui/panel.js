@@ -19,6 +19,7 @@ const ICON_PATHS = {
     "M141.66,133.66l-40,40a8,8,0,0,1-11.32-11.32L116.69,136H24a8,8,0,0,1,0-16h92.69L90.34,93.66a8,8,0,0,1,11.32-11.32l40,40A8,8,0,0,1,141.66,133.66ZM200,32H136a8,8,0,0,0,0,16h56V208H136a8,8,0,0,0,0,16h64a8,8,0,0,0,8-8V40A8,8,0,0,0,200,32Z",
   folder:
     "M216,72H130.67L102.93,51.2a16.12,16.12,0,0,0-9.6-3.2H40A16,16,0,0,0,24,64V200a16,16,0,0,0,16,16H216.89A15.13,15.13,0,0,0,232,200.89V88A16,16,0,0,0,216,72Zm0,128H40V64H93.33L123.2,86.4A8,8,0,0,0,128,88h88Z",
+  plug: "M149.66,138.34a8,8,0,0,0-11.32,0L120,156.69,99.31,136l18.35-18.34a8,8,0,0,0-11.32-11.32L88,124.69,69.66,106.34a8,8,0,0,0-11.32,11.32L64.69,124,41.37,147.31a32,32,0,0,0,0,45.26l5.38,5.37-28.41,28.4a8,8,0,0,0,11.32,11.32l28.4-28.41,5.37,5.38a32,32,0,0,0,45.26,0L132,191.31l6.34,6.35a8,8,0,0,0,11.32-11.32L131.31,168l18.35-18.34A8,8,0,0,0,149.66,138.34Zm-52.29,65a16,16,0,0,1-22.62,0L52.69,181.25a16,16,0,0,1,0-22.62L76,135.31,120.69,180Zm140.29-185a8,8,0,0,0-11.32,0l-28.4,28.41-5.37-5.38a32.05,32.05,0,0,0-45.26,0L124,64.69l-6.34-6.35a8,8,0,0,0-11.32,11.32l80,80a8,8,0,0,0,11.32-11.32L191.31,132l23.32-23.31a32,32,0,0,0,0-45.26l-5.38-5.37,28.41-28.4A8,8,0,0,0,237.66,18.34Zm-34.35,79L180,120.69,135.31,76l23.32-23.31a16,16,0,0,1,22.62,0l22.06,22A16,16,0,0,1,203.31,97.37Z",
   warning:
     "M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm-8-80V80a8,8,0,0,1,16,0v56a8,8,0,0,1-16,0Zm20,36a12,12,0,1,1-12-12A12,12,0,0,1,140,172Z",
 };
@@ -552,7 +553,7 @@ async function submitCopy() {
 function renderCopied(body) {
   const toLabel = state.profiles.find((p) => p.id === state.copy.to)?.label ?? "the other lane";
   const sessions = (n) => (n === 1 ? "1 session" : `${n} sessions`);
-  const { sessions: copied = 0, kept_newer: kept = 0 } = state.copy.result ?? {};
+  const { sessions: copied = 0, kept_newer: kept = 0, connect = [] } = state.copy.result ?? {};
   body.appendChild(
     title("Setup copied", `${sessions(copied)} and your settings are now in “${toLabel}”. Open it from the menu to see them.`),
   );
@@ -562,6 +563,18 @@ function renderCopied(body) {
       iconLine("note", "folder", `${sessions(kept)} you'd used more recently in “${toLabel}” ${kept === 1 ? "was" : "were"} kept as ${kept === 1 ? "it was" : "they were"}.`),
     );
     body.appendChild(notes);
+  }
+  // claude.ai connectors belong to each account, so the copy can't bring them.
+  if (connect.length > 0) {
+    const section = el("div", "connect");
+    section.appendChild(el("h2", "connect-title", `Connect these in “${toLabel}”`));
+    section.appendChild(
+      el("p", "connect-sub", `They belong to each claude.ai account, so they can't be copied. In ${toLabel}, open Settings → Connectors.`),
+    );
+    const list = el("div", "notes");
+    connect.forEach((c) => list.appendChild(iconLine("note connect-item", "plug", c.name)));
+    section.appendChild(list);
+    body.appendChild(section);
   }
   const done = el("button", "btn btn-primary", "Done");
   done.type = "button";

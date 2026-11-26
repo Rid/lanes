@@ -65,6 +65,78 @@ pub struct Summary {
     pub kept_newer: usize,
     /// Files written into the target.
     pub files: usize,
+    /// claude.ai connectors the source uses that the target hasn't connected.
+    /// These live with each account on claude.ai, so they can't be copied.
+    pub connect: Vec<Connector>,
+}
+
+#[derive(serde::Serialize, Debug, Clone, PartialEq)]
+pub struct Connector {
+    pub name: String,
+    pub url: String,
+}
+
+/// Connectors Claude provides to every account, which never need connecting.
+fn built_in(url: &str) -> bool {
+    let host = url
+        .split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split(['/', ':'])
+        .next()
+        .unwrap_or("");
+    ["anthropic.com", "claude.ai", "claude.com", "claudemcpcontent.com"]
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
+}
+
+/// The claude.ai connectors a lane currently has, as recorded in its most
+/// recently active Code session (Claude saves each connector's name, address
+/// and tools there; no tokens). Empty if it hasn't run a Code session.
+pub fn connectors(data_dir: &Path) -> Vec<Connector> {
+    let Ok(accounts) = fs::read_dir(data_dir.join(SESSIONS)) else {
+        return Vec::new();
+    };
+    let mut newest: Option<(i64, Vec<Connector>)> = None;
+    let orgs = accounts.flatten().filter_map(|a| fs::read_dir(a.path()).ok()).flatten().flatten();
+    for file in orgs.filter_map(|o| fs::read_dir(o.path()).ok()).flatten().flatten() {
+        let name = file.file_name().to_string_lossy().into_owned();
+        if !(name.starts_with("local_") && name.ends_with(".json")) {
+            continue;
+        }
+        let Some(session) = fs::read(file.path()).ok().and_then(|b| parse(&b)) else {
+            continue;
+        };
+        let (Some(at), Some(list)) = (
+            session.get("lastActivityAt").and_then(Value::as_i64),
+            session.get("remoteMcpServersConfig").and_then(Value::as_array),
+        ) else {
+            continue;
+        };
+        if newest.as_ref().is_some_and(|(seen, _)| *seen >= at) {
+            continue;
+        }
+        let found = list
+            .iter()
+            .filter_map(|s| {
+                Some(Connector {
+                    name: s.get("name")?.as_str()?.to_string(),
+                    url: s.get("url")?.as_str()?.to_string(),
+                })
+            })
+            .collect();
+        newest = Some((at, found));
+    }
+    newest.map(|(_, list)| list).unwrap_or_default()
+}
+
+/// Connectors `from` uses that `to` hasn't connected, matched by address.
+fn to_connect(from: &Path, to: &Path) -> Vec<Connector> {
+    let have: Vec<String> = connectors(to).into_iter().map(|c| c.url).collect();
+    connectors(from)
+        .into_iter()
+        .filter(|c| !built_in(&c.url) && !have.contains(&c.url))
+        .collect()
 }
 
 fn is_uuid(s: &str) -> bool {
@@ -354,7 +426,11 @@ pub fn copy_setup(
         backup_dir,
         src_scratch: from.join("scratch-workspaces"),
         dst_scratch: to.join("scratch-workspaces"),
-        summary: Summary::default(),
+        // Before copying: copied sessions would otherwise hide the target's own list.
+        summary: Summary {
+            connect: to_connect(from, to),
+            ..Summary::default()
+        },
     };
     for name in FILES {
         let src = from.join(name);
@@ -458,6 +534,37 @@ mod tests {
         // Copying again changes nothing.
         let again = copy_setup(&from, &ids(SA, SO), &to, &ids(TA, TO), &root.join("backup2")).unwrap();
         assert_eq!(again.files, 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn lists_connectors_the_target_still_needs() {
+        let root = scratch("connectors");
+        let (from, to) = (root.join("from"), root.join("to"));
+        let at = |dir: &Path, acct: &str, org: &str, name: &str, activity: i64, urls: &[(&str, &str)]| {
+            let list: Vec<Value> = urls.iter().map(|(n, u)| json!({ "uuid": "x", "name": n, "url": u, "tools": [] })).collect();
+            write(
+                dir.join(format!("{SESSIONS}/{acct}/{org}/{name}")),
+                &json!({ "lastActivityAt": activity, "remoteMcpServersConfig": list }).to_string(),
+            );
+        };
+        let gmail = ("Gmail", "https://gmailmcp.googleapis.com/mcp/v1");
+        let drive = ("Google Drive", "https://drivemcp.googleapis.com/mcp/v1");
+        let posthog = ("PostHog", "https://mcp.posthog.com/mcp");
+        let docs = ("Claude Docs", "https://api.anthropic.com/v1/pages/mcp");
+        // Source: an old session with Drive only, the newest with Gmail, PostHog and a built-in.
+        at(&from, SA, SO, "local_old.json", 1, &[drive]);
+        at(&from, SA, SO, "local_new.json", 9, &[gmail, posthog, docs]);
+        // Target already has PostHog.
+        at(&to, TA, TO, "local_t.json", 5, &[posthog, docs]);
+
+        let names: Vec<String> = to_connect(&from, &to).into_iter().map(|c| c.name).collect();
+        assert_eq!(names, ["Gmail"]);
+        // A lane with no sessions yet needs everything that isn't built in.
+        let fresh: Vec<String> = to_connect(&from, &root.join("fresh")).into_iter().map(|c| c.name).collect();
+        assert_eq!(fresh, ["Gmail", "PostHog"]);
+        assert!(built_in("https://sandbox.claudemcpcontent.com/imagine_mcp"));
+        assert!(!built_in("https://evilanthropic.com/mcp"));
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -487,6 +487,28 @@ button.ic:hover {
 .copied-notes {
   margin: 0 16px 16px;
 }
+/* "Connect these in …": connectors the copy can't bring over. */
+.connect {
+  padding: 0 16px;
+}
+.connect-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.connect-sub {
+  margin: 2px 0 10px;
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+.connect .notes {
+  margin: 0 0 16px;
+}
+.connect-item {
+  color: var(--text-default);
+  font-weight: 500;
+}
 /* Icon slot one text line tall, so the icon centres on the first line. */
 .line-icon {
   height: 20px;
